@@ -18,7 +18,7 @@ import { sfx } from './sound';
 class ScattUipmRangeController {
   // Configuration State
   private drillMode: DrillMode = 'UIPM_5HIT_SERIES';
-  private triggerMode: TriggerMechanicsMode = 'TWO_STAGE_RELEASE';
+  private triggerMode: TriggerMechanicsMode = 'DIRECT_COMPETITION';
   private sightZeroMode: SightZeroMode = 'CENTER_HOLD';
   private requiredHoldSec = 0.9;
   private sensitivityMult = 1.25;
@@ -252,8 +252,15 @@ class ScattUipmRangeController {
     breathBtn?.addEventListener('pointerleave', endBreath);
     breathBtn?.addEventListener('pointercancel', endBreath);
 
-    // Trigger Button (Supports both 2-Stage Press-Hold-Release and Direct Press)
+    // Trigger Button (Supports both Direct Press and 2-Stage Hold-Release)
     const fireBtn = document.getElementById('btn-fire');
+    const triggerAction = (e: Event) => {
+      e.preventDefault();
+      this.onTriggerPressStart();
+      if (this.triggerMode === 'DIRECT_COMPETITION') {
+        this.onTriggerRelease();
+      }
+    };
     fireBtn?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.onTriggerPressStart();
@@ -261,6 +268,17 @@ class ScattUipmRangeController {
     fireBtn?.addEventListener('pointerup', (e) => {
       e.preventDefault();
       this.onTriggerRelease();
+    });
+    fireBtn?.addEventListener('click', triggerAction);
+
+    // Mobile / Desktop Canvas Tap to Fire
+    this.rangeCanvas.addEventListener('pointerdown', (e) => {
+      if (this.isStationActive && !this.pendingFollowThroughShot) {
+        this.onTriggerPressStart();
+        if (this.triggerMode === 'DIRECT_COMPETITION') {
+          this.onTriggerRelease();
+        }
+      }
     });
 
     // Desktop Mouse Aiming on Range Canvas
@@ -390,7 +408,9 @@ class ScattUipmRangeController {
   private startRangeSession() {
     this.switchScreen('view-range');
     this.isStationActive = true;
-    this.isTableArmed = false;
+    this.isTableArmed = true; // Start armed and ready to shoot immediately
+    this.stationStartPerfMs = performance.now();
+    this.lastRaiseFromTableMs = this.stationStartPerfMs;
     this.currentShots = [];
     this.hitsCount = 0;
     this.recentAimTrail = [];
@@ -409,15 +429,13 @@ class ScattUipmRangeController {
 
     const banner = document.getElementById('table-touch-banner');
     if (banner) {
-      banner.classList.add('visible');
-      banner.innerHTML =
-        '⬇️ <strong>TABLE START REQUIRED:</strong> ลดปืนแตะโต๊ะ (ก้มมือถือลง) หรือกดปุ่ม <strong>[⬇️ แตะโต๊ะ / Zero (R)]</strong> เพื่อเริ่มยกปืนยิงนัดแรก';
+      banner.classList.remove('visible');
     }
 
     const readout = document.getElementById('hud-last-shot-readout');
     if (readout) {
-      readout.textContent = 'TOUCH TABLE TO ARM';
-      readout.style.color = '#fbbf24';
+      readout.textContent = 'READY — AIM & TAP TO SHOOT';
+      readout.style.color = '#38bdf8';
     }
 
     this.updateTriggerButtonVisual();
@@ -466,11 +484,9 @@ class ScattUipmRangeController {
     if (!this.isStationActive || this.pendingFollowThroughShot) return;
 
     if (!this.isTableArmed) {
-      // Remind athlete to touch table first
-      sfx.playJerk();
-      const banner = document.getElementById('table-touch-banner');
-      if (banner) banner.classList.add('visible');
-      return;
+      this.isTableArmed = true;
+      this.stationStartPerfMs = performance.now();
+      this.lastRaiseFromTableMs = this.stationStartPerfMs;
     }
 
     if (this.triggerMode === 'TWO_STAGE_RELEASE') {

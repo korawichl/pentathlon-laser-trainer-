@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: pentathlon-laser-trainer
+    env: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
