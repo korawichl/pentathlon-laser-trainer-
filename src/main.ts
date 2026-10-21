@@ -15,13 +15,13 @@ import { PerformanceAnalytics } from './analytics/stats';
 import { SessionStorageExport } from './storage/export';
 import { sfx } from './sound';
 
-class ScattUipmRangeController {
+class PentaArenaController {
   // Configuration State
   private drillMode: DrillMode = 'UIPM_5HIT_SERIES';
   private triggerMode: TriggerMechanicsMode = 'DIRECT_COMPETITION';
   private sightZeroMode: SightZeroMode = 'CENTER_HOLD';
   private requiredHoldSec = 0.9;
-  private sensitivityMult = 1.25;
+  private sensitivityMult = 1.35;
   private showLiveTrace = true;
 
   // Services
@@ -32,7 +32,7 @@ class ScattUipmRangeController {
   private pitchFilter = new OneEuroFilter(4.5, 0.04, 1.0);
   private rollFilter = new OneEuroFilter(3.5, 0.03, 1.0);
 
-  // Biometric Telemetry
+  // Biometrics
   private entryBpm = 174;
   private currentBpm = 174;
   private hrSource: DataSourceType = 'SIMULATED_MODEL';
@@ -41,19 +41,28 @@ class ScattUipmRangeController {
   private currentO2Stress01 = 0;
   private currentDeltoidPct = 0;
 
-  // Sensor & Aim State
-  private hasGyro = false;
-  private rawGamma = 0;
-  private rawBeta = 75;
-  private rawAlpha = 0;
-  private zeroGamma = 0;
-  private zeroBeta = 75;
+  // Real-Time Gyroscope & Motion Tracking
+  public hasGyro = false;
+  private lastRawAlpha: number | null = null;
+  private gyroContinuousYawDeg = 0;
+  private gyroContinuousPitchDeg = 0;
+  private zeroYawDeg = 0;
+  private zeroPitchDeg = 0;
+  private zeroRollDeg = 0;
+  private rawRollDeg = 0;
   private latestAccel = { x: 0, y: 0, z: 0 };
+  private lastMotionMs = 0;
 
-  // Desktop fallback state
+  // Touch drag offset (finger drag fallback / fine-tuning)
+  private dragYawDeg = 0;
+  private dragPitchDeg = 0;
+  private isDragging = false;
+  private lastDragX = 0;
+  private lastDragY = 0;
+
+  // Desktop Pointer fallback
   private pointerYawDeg = 0;
   private pointerPitchDeg = 0;
-  private pointerRollDeg = 0;
 
   // Computed live coordinates on 10m target (mm)
   private currentXMm = 0;
@@ -64,15 +73,15 @@ class ScattUipmRangeController {
   private liveTraceSpeedMmPerSec = 0;
   private recentAimTrail: { tMs: number; xMm: number; yMm: number }[] = [];
 
-  // Station & Drill Lifecycle State
+  // Station Lifecycle
   private isStationActive = false;
-  private isTableArmed = false;       // Must touch table before first shot (or before each shot in FIRST_SHOT_DRILL)
-  private stationStartPerfMs = 0;     // Set when pistol lifts from table (or touches table to arm)
+  private isTableArmed = true;
+  private stationStartPerfMs = 0;
   private lastRaiseFromTableMs = 0;
   private lastShotPerfMs = 0;
   private maxDurationSec = 50.0;
   private requiredHits = 5;
-  private maxShotsInDrill = 99;
+  private maxShotsInDrill = 25;
 
   // Trigger Mechanics State
   private isStage1Held = false;
@@ -98,17 +107,15 @@ class ScattUipmRangeController {
   private cadenceIntervalSec = 2.1;
   private nextMetronomeTickSec = 2.1;
 
-  // Recorded Shots & Result Replay
+  // Recorded Shots & Replay
   private currentShots: ShotRecord[] = [];
   private hitsCount = 0;
   private lastSeriesResult: SeriesResult | null = null;
-  private selectedReplayShotIdx: number = -1; // -1 = All shots overview
+  private selectedReplayShotIdx: number = -1;
 
-  // Animation loop
+  // Animation Loop & Canvases
   private animFrameId = 0;
   private lastFrameMs = 0;
-
-  // Canvas references
   private rangeCanvas!: HTMLCanvasElement;
   private rangeCtx!: CanvasRenderingContext2D;
   private replayCanvas!: HTMLCanvasElement;
@@ -120,10 +127,10 @@ class ScattUipmRangeController {
     this.replayCanvas = document.getElementById('scatt-replay-canvas') as HTMLCanvasElement;
     this.replayCtx = this.replayCanvas.getContext('2d')!;
 
-    this.bindSetupControls();
+    this.bindDashboardControls();
     this.bindRangeControls();
     this.bindResultControls();
-    this.initMotionListeners();
+    this.initGyroscope();
     this.resizeRangeCanvas();
     window.addEventListener('resize', () => this.resizeRangeCanvas());
   }
@@ -136,23 +143,214 @@ class ScattUipmRangeController {
     }
   }
 
-  private bindSetupControls() {
-    const hrSelect = document.getElementById('select-hr-profile') as HTMLSelectElement;
-    hrSelect?.addEventListener('change', () => {
-      if (this.hrSource !== 'HARDWARE_BLE') {
-        this.entryBpm = parseInt(hrSelect.value, 10) || 174;
-        this.currentBpm = this.entryBpm;
-        this.updateSetupBadges();
+  // ===========================================================================
+  // GYROSCOPE INITIALIZATION & PERMISSION (iOS 13+ & Android Chrome)
+  // ===========================================================================
+
+  private initGyroscope() {
+    const gyroBtn = document.getElementById('btn-gyro-status');
+    const gyroText = document.getElementById('gyro-status-text');
+
+    const updateBadge = (active: boolean) => {
+      if (!gyroBtn || !gyroText) return;
+      if (active) {
+        gyroBtn.className = 'gyro-pill-btn active';
+        gyroText.textContent = '🟢 ไจโร: เปิดใช้งาน';
+      } else {
+        gyroBtn.className = 'gyro-pill-btn prompt';
+        gyroText.textContent = '📱 แตะเปิดใช้งานไจโร';
+      }
+    };
+
+    // Check if permission API exists (iOS)
+    const devOrient = window.DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+
+    if (typeof devOrient?.requestPermission === 'function') {
+      updateBadge(false);
+      gyroBtn?.addEventListener('click', async () => {
+        try {
+          const res = await devOrient.requestPermission!();
+          if (res === 'granted') {
+            this.hasGyro = true;
+            updateBadge(true);
+            this.attachOrientationListeners();
+          } else {
+            alert('ไม่ได้รับอนุญาตให้ใช้ Gyroscope กรุณาเปิดสิทธิ์ในตั้งค่า Safari');
+          }
+        } catch (err) {
+          console.warn('Gyro permission error:', err);
+        }
+      });
+    } else {
+      // Android & Desktop automatically attach
+      this.attachOrientationListeners();
+    }
+  }
+
+  private attachOrientationListeners() {
+    const gyroBtn = document.getElementById('btn-gyro-status');
+    const gyroText = document.getElementById('gyro-status-text');
+
+    // 1. DeviceOrientation (Unwrapped yaw, pitch, roll)
+    window.addEventListener('deviceorientation', (e) => {
+      if (e.alpha !== null && e.beta !== null) {
+        if (!this.hasGyro) {
+          this.hasGyro = true;
+          if (gyroBtn && gyroText) {
+            gyroBtn.className = 'gyro-pill-btn active';
+            gyroText.textContent = '🟢 ไจโร: พร้อมใช้งาน';
+          }
+        }
+
+        // Continuous Heading (Yaw) unwrapping to prevent 0 <-> 360 jump
+        if (this.lastRawAlpha !== null) {
+          let deltaAlpha = e.alpha - this.lastRawAlpha;
+          if (deltaAlpha > 180) deltaAlpha -= 360;
+          if (deltaAlpha < -180) deltaAlpha += 360;
+          // Turning phone right decreases alpha in standard coordinate system
+          this.gyroContinuousYawDeg -= deltaAlpha;
+        } else {
+          this.zeroYawDeg = 0;
+          this.gyroContinuousYawDeg = 0;
+        }
+        this.lastRawAlpha = e.alpha;
+
+        // Pitch: Phone upright facing user (beta ~ 75-85 deg)
+        this.gyroContinuousPitchDeg = e.beta;
+        // Roll: Side-to-side cant angle (gamma ~ -90 to +90 deg)
+        this.rawRollDeg = e.gamma || 0;
       }
     });
 
-    document.getElementById('btn-connect-ble-hr')?.addEventListener('click', async () => {
+    // 2. DeviceMotion for angular velocity integration & trigger jerk detection
+    window.addEventListener('devicemotion', (e) => {
+      const acc = e.acceleration || e.accelerationIncludingGravity;
+      if (acc) {
+        this.latestAccel = {
+          x: acc.x || 0,
+          y: acc.y || 0,
+          z: acc.z || 0
+        };
+      }
+
+      // If rotationRate is available, integrate for sub-millisecond precision
+      const rot = e.rotationRate;
+      const now = performance.now();
+      if (rot && this.lastMotionMs > 0) {
+        const dt = Math.min(0.04, (now - this.lastMotionMs) / 1000.0);
+        if (dt > 0.002) {
+          // In portrait orientation:
+          // rot.alpha / rot.gamma contribute to horizontal yaw
+          // rot.beta contributes to vertical pitch
+          if (rot.alpha !== null && Math.abs(rot.alpha) > 0.1) {
+            this.gyroContinuousYawDeg += rot.alpha * dt * 0.45;
+          }
+          if (rot.beta !== null && Math.abs(rot.beta) > 0.1) {
+            this.gyroContinuousPitchDeg += rot.beta * dt * 0.45;
+          }
+        }
+      }
+      this.lastMotionMs = now;
+    });
+  }
+
+  // Recenter aim to currently held orientation
+  public recenterAim() {
+    this.zeroYawDeg = this.gyroContinuousYawDeg;
+    this.zeroPitchDeg = this.gyroContinuousPitchDeg;
+    this.zeroRollDeg = this.rawRollDeg;
+    this.dragYawDeg = 0;
+    this.dragPitchDeg = 0;
+    this.pointerYawDeg = 0;
+    this.pointerPitchDeg = 0;
+    this.yawFilter.reset();
+    this.pitchFilter.reset();
+    this.rollFilter.reset();
+    this.biomech.resetDeltoidFatigue();
+
+    const readout = document.getElementById('hud-last-shot-readout');
+    if (readout) {
+      readout.textContent = '🎯 SIGHTS RECENTERED (ZERO OK)';
+      readout.style.color = '#38bdf8';
+    }
+  }
+
+  // ===========================================================================
+  // DASHBOARD CONTROLS & SELECTION (Modern Esports Grid)
+  // ===========================================================================
+
+  private bindDashboardControls() {
+    // 1. Drill Cards Selection
+    const drillCards = document.querySelectorAll('.drill-card');
+    drillCards.forEach(card => {
+      card.addEventListener('click', () => {
+        drillCards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        const mode = card.getAttribute('data-drill') as DrillMode;
+        if (mode) {
+          this.drillMode = mode;
+          const badge = document.getElementById('selected-drill-badge');
+          if (badge) {
+            badge.textContent = `โหมดปัจจุบัน: ${card.querySelector('.drill-card-title')?.textContent}`;
+          }
+        }
+      });
+    });
+
+    // 2. Trigger Action Pills
+    const triggerPills = document.querySelectorAll('#trigger-mode-pills .opt-pill');
+    triggerPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        triggerPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        const val = pill.getAttribute('data-val') as TriggerMechanicsMode;
+        if (val) this.triggerMode = val;
+      });
+    });
+
+    // 3. Heart Rate Pills
+    const hrPills = document.querySelectorAll('#hr-mode-pills .opt-pill');
+    hrPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        hrPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        const val = parseInt(pill.getAttribute('data-val') || '174', 10);
+        if (this.hrSource !== 'HARDWARE_BLE') {
+          this.entryBpm = val;
+          this.currentBpm = val;
+        }
+      });
+    });
+
+    // 4. Sight Picture Zero Pills
+    const sightPills = document.querySelectorAll('#sight-mode-pills .opt-pill');
+    sightPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        sightPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        const val = pill.getAttribute('data-val') as SightZeroMode;
+        if (val) this.sightZeroMode = val;
+      });
+    });
+
+    // 5. Sound Toggle
+    const soundBtn = document.getElementById('btn-sound-toggle');
+    soundBtn?.addEventListener('click', () => {
+      sfx.muted = !sfx.muted;
+      soundBtn.textContent = sfx.muted ? '🔇' : '🔊';
+    });
+
+    // 6. Connect BLE Heart Rate
+    document.getElementById('btn-connect-ble')?.addEventListener('click', async () => {
       this.bleHr.subscribe((bpm, source) => {
         if (source === 'HARDWARE_BLE') {
           this.currentBpm = bpm;
           this.entryBpm = bpm;
           this.hrSource = 'HARDWARE_BLE';
-          this.updateSetupBadges();
+          const btn = document.getElementById('btn-connect-ble');
+          if (btn) btn.textContent = `💚 BLE LIVE: ${bpm} BPM`;
         }
       });
       const ok = await this.bleHr.connectBleSensor();
@@ -161,81 +359,51 @@ class ScattUipmRangeController {
       }
     });
 
-    const audioBtn = document.getElementById('btn-Audio-Toggle');
-    audioBtn?.addEventListener('click', () => {
-      sfx.muted = !sfx.muted;
-      audioBtn.textContent = !sfx.muted ? '🔊 เสียงสนาม & ชีพจร: ON' : '🔇 เสียงสนาม & ชีพจร: OFF';
-    });
-
+    // 7. Enter Range Button
     document.getElementById('btn-enter-range')?.addEventListener('click', async () => {
-      await this.requestIosOrientationPermission();
-      this.readSetupConfiguration();
+      // Trigger iOS request if needed
+      const devOrient = window.DeviceOrientationEvent as unknown as {
+        requestPermission?: () => Promise<'granted' | 'denied'>;
+      };
+      if (typeof devOrient?.requestPermission === 'function' && !this.hasGyro) {
+        try {
+          const res = await devOrient.requestPermission();
+          if (res === 'granted') {
+            this.hasGyro = true;
+            this.attachOrientationListeners();
+          }
+        } catch {
+          // ignore
+        }
+      }
       this.startRangeSession();
     });
   }
 
-  private updateSetupBadges() {
-    const badge = document.getElementById('setup-hr-badge');
-    if (!badge) return;
-    if (this.hrSource === 'HARDWARE_BLE') {
-      badge.className = 'badge badge-hardware';
-      badge.textContent = `HR: ${this.currentBpm} BPM [BLE LIVE]`;
-    } else {
-      badge.className = 'badge badge-simulated';
-      badge.textContent = `HR: ${this.entryBpm} BPM [BIOMECH SIM]`;
-    }
-  }
-
-  private readSetupConfiguration() {
-    this.drillMode = ((document.getElementById('select-drill-mode') as HTMLSelectElement)?.value ||
-      'UIPM_5HIT_SERIES') as DrillMode;
-    this.triggerMode = ((document.getElementById('select-trigger-mode') as HTMLSelectElement)?.value ||
-      'TWO_STAGE_RELEASE') as TriggerMechanicsMode;
-    this.sightZeroMode = ((document.getElementById('select-sight-mode') as HTMLSelectElement)?.value ||
-      'CENTER_HOLD') as SightZeroMode;
-    this.requiredHoldSec = parseFloat(
-      (document.getElementById('select-hold-time') as HTMLSelectElement)?.value || '0.9'
-    );
-    this.sensitivityMult = parseFloat(
-      (document.getElementById('select-sensitivity') as HTMLSelectElement)?.value || '1.25'
-    );
-    const traceVal = (document.getElementById('select-live-trace') as HTMLSelectElement)?.value;
-    this.showLiveTrace = traceVal !== 'BLIND_COMPETITION';
-
-    if (this.hrSource !== 'HARDWARE_BLE') {
-      this.entryBpm = parseInt(
-        (document.getElementById('select-hr-profile') as HTMLSelectElement)?.value || '174',
-        10
-      );
-      this.currentBpm = this.entryBpm;
-    }
-
-    // Configure Drill Rules
-    if (this.drillMode === 'UIPM_5HIT_SERIES') {
-      this.requiredHits = 5;
-      this.maxShotsInDrill = 25;
-      this.maxDurationSec = 50.0;
-    } else if (this.drillMode === 'FIRST_SHOT_DRILL') {
-      this.requiredHits = 5;
-      this.maxShotsInDrill = 5;
-      this.maxDurationSec = 60.0;
-    } else if (this.drillMode === 'SCATT_10SHOT_DIAG') {
-      this.requiredHits = 10;
-      this.maxShotsInDrill = 10;
-      this.maxDurationSec = 120.0;
-    } else if (this.drillMode === 'CADENCE_METRONOME') {
-      this.requiredHits = 5;
-      this.maxShotsInDrill = 15;
-      this.maxDurationSec = 45.0;
-    }
-  }
+  // ===========================================================================
+  // RANGE CONTROLS & SHOOTING HUD
+  // ===========================================================================
 
   private bindRangeControls() {
-    // Table Touch / Zero Button
-    const tableBtn = document.getElementById('btn-table-touch');
-    tableBtn?.addEventListener('click', () => this.performTableTouchAndZero());
+    // Back / Exit Range
+    document.getElementById('btn-range-exit')?.addEventListener('click', () => {
+      this.isStationActive = false;
+      cancelAnimationFrame(this.animFrameId);
+      this.switchScreen('view-setup');
+    });
 
-    // Breath Hold Button (Touch & Mouse)
+    // Recenter Aim Button
+    document.getElementById('btn-recenter-aim')?.addEventListener('click', () => {
+      this.recenterAim();
+    });
+
+    // Table Touch / Zero Button
+    document.getElementById('btn-table-touch')?.addEventListener('click', () => {
+      this.recenterAim();
+      sfx.playTakeUp();
+    });
+
+    // Breath Hold (Apnea)
     const breathBtn = document.getElementById('btn-breath-hold');
     const startBreath = (e: Event) => {
       e.preventDefault();
@@ -252,15 +420,8 @@ class ScattUipmRangeController {
     breathBtn?.addEventListener('pointerleave', endBreath);
     breathBtn?.addEventListener('pointercancel', endBreath);
 
-    // Trigger Button (Supports both Direct Press and 2-Stage Hold-Release)
+    // Trigger Button (Fire)
     const fireBtn = document.getElementById('btn-fire');
-    const triggerAction = (e: Event) => {
-      e.preventDefault();
-      this.onTriggerPressStart();
-      if (this.triggerMode === 'DIRECT_COMPETITION') {
-        this.onTriggerRelease();
-      }
-    };
     fireBtn?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.onTriggerPressStart();
@@ -269,34 +430,47 @@ class ScattUipmRangeController {
       e.preventDefault();
       this.onTriggerRelease();
     });
-    fireBtn?.addEventListener('click', triggerAction);
 
-    // Mobile / Desktop Canvas Tap to Fire
+    // Touch Drag & Tap on Target Canvas
     this.rangeCanvas.addEventListener('pointerdown', (e) => {
-      if (this.isStationActive && !this.pendingFollowThroughShot) {
-        this.onTriggerPressStart();
-        if (this.triggerMode === 'DIRECT_COMPETITION') {
-          this.onTriggerRelease();
-        }
+      this.isDragging = true;
+      this.lastDragX = e.clientX;
+      this.lastDragY = e.clientY;
+
+      // In Direct Competition, tapping screen immediately shoots!
+      if (this.triggerMode === 'DIRECT_COMPETITION' && this.isStationActive && !this.pendingFollowThroughShot) {
+        this.initiateShotBreak();
       }
     });
 
-    // Desktop Mouse Aiming on Range Canvas
     this.rangeCanvas.addEventListener('pointermove', (e) => {
-      const rect = this.rangeCanvas.getBoundingClientRect();
-      const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2.0; // -1 to +1
-      const ny = (0.5 - (e.clientY - rect.top) / rect.height) * 2.0; // -1 to +1
-      this.pointerYawDeg = nx * 0.65;
-      this.pointerPitchDeg = ny * 0.65;
+      if (this.isDragging) {
+        const dx = e.clientX - this.lastDragX;
+        const dy = e.clientY - this.lastDragY;
+        this.lastDragX = e.clientX;
+        this.lastDragY = e.clientY;
+        // Fine-tuning drag sensitivity
+        this.dragYawDeg += dx * 0.045;
+        this.dragPitchDeg -= dy * 0.045;
+      }
+
+      // Also support desktop mouse pointer
+      if (!this.hasGyro) {
+        const rect = this.rangeCanvas.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2.0;
+        const ny = (0.5 - (e.clientY - rect.top) / rect.height) * 2.0;
+        this.pointerYawDeg = nx * 0.75;
+        this.pointerPitchDeg = ny * 0.75;
+      }
     });
 
-    // Wheel tilts pistol cant angle slightly on desktop for testing Cant physics
-    this.rangeCanvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      this.pointerRollDeg = Math.max(-12, Math.min(12, this.pointerRollDeg + (e.deltaY > 0 ? 0.6 : -0.6)));
-    }, { passive: false });
+    const stopDrag = () => {
+      this.isDragging = false;
+    };
+    this.rangeCanvas.addEventListener('pointerup', stopDrag);
+    this.rangeCanvas.addEventListener('pointercancel', stopDrag);
 
-    // Hardware Volume / Keyboard Shortcuts
+    // Desktop Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
       if (!this.isStationActive) return;
       if (e.code === 'Space' && !e.repeat) {
@@ -304,16 +478,9 @@ class ScattUipmRangeController {
         this.onTriggerPressStart();
       } else if (e.key === 'Shift' && !e.repeat) {
         this.isHoldingBreath = true;
-        document.getElementById('btn-breath-hold')?.classList.add('holding');
+        breathBtn?.classList.add('holding');
       } else if (e.code === 'KeyR') {
-        this.performTableTouchAndZero();
-      } else if (e.code === 'KeyQ') {
-        this.pointerRollDeg = Math.max(-12, this.pointerRollDeg - 1.0);
-      } else if (e.code === 'KeyE') {
-        this.pointerRollDeg = Math.min(12, this.pointerRollDeg + 1.0);
-      } else if (e.key === 'AudioVolumeUp' || e.key === 'AudioVolumeDown') {
-        e.preventDefault();
-        this.onTriggerPressStart();
+        this.recenterAim();
       }
     });
 
@@ -324,10 +491,7 @@ class ScattUipmRangeController {
         this.onTriggerRelease();
       } else if (e.key === 'Shift') {
         this.isHoldingBreath = false;
-        document.getElementById('btn-breath-hold')?.classList.remove('holding');
-      } else if (e.key === 'AudioVolumeUp' || e.key === 'AudioVolumeDown') {
-        e.preventDefault();
-        this.onTriggerRelease();
+        breathBtn?.classList.remove('holding');
       }
     });
   }
@@ -348,49 +512,6 @@ class ScattUipmRangeController {
     });
   }
 
-  private async requestIosOrientationPermission() {
-    const devOrient = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<'granted' | 'denied'>;
-    };
-    if (typeof devOrient.requestPermission === 'function') {
-      try {
-        await devOrient.requestPermission();
-      } catch {
-        // Ignore if denied or desktop
-      }
-    }
-  }
-
-  private initMotionListeners() {
-    window.addEventListener('deviceorientation', (e) => {
-      if (e.gamma !== null && e.beta !== null) {
-        this.hasGyro = true;
-        this.rawGamma = e.gamma;
-        this.rawBeta = e.beta;
-        this.rawAlpha = e.alpha || 0;
-
-        // Auto table-touch detection if phone is tilted down steeply (<= -16 deg relative to zero)
-        if (this.isStationActive && !this.isTableArmed) {
-          const relPitch = this.rawBeta - this.zeroBeta;
-          if (relPitch <= -16) {
-            this.performTableTouchAndZero();
-          }
-        }
-      }
-    });
-
-    window.addEventListener('devicemotion', (e) => {
-      const acc = e.acceleration || e.accelerationIncludingGravity;
-      if (acc) {
-        this.latestAccel = {
-          x: acc.x || 0,
-          y: acc.y || 0,
-          z: acc.z || 0
-        };
-      }
-    });
-  }
-
   private resizeRangeCanvas() {
     if (!this.rangeCanvas) return;
     const rect = this.rangeCanvas.getBoundingClientRect();
@@ -402,13 +523,13 @@ class ScattUipmRangeController {
   }
 
   // ===========================================================================
-  // STATION LIFECYCLE & TABLE-TOUCH START PROTOCOL
+  // SESSION LIFECYCLE
   // ===========================================================================
 
   private startRangeSession() {
     this.switchScreen('view-range');
     this.isStationActive = true;
-    this.isTableArmed = true; // Start armed and ready to shoot immediately
+    this.isTableArmed = true;
     this.stationStartPerfMs = performance.now();
     this.lastRaiseFromTableMs = this.stationStartPerfMs;
     this.currentShots = [];
@@ -417,102 +538,80 @@ class ScattUipmRangeController {
     this.pendingFollowThroughShot = null;
     this.isStage1Held = false;
     this.currentHoldInZoneSec = 0;
-    this.pointerRollDeg = 0;
     this.biomech.deltoidHoldSec = 0;
     this.biomech.currentBreathHoldSec = 0;
+    this.recenterAim();
 
-    // Reset lamps
-    for (let i = 1; i <= 5; i++) {
-      const lamp = document.getElementById(`lamp-dot-${i}`);
-      if (lamp) lamp.className = 'lamp-dot';
+    // Configure drill limits
+    if (this.drillMode === 'UIPM_5HIT_SERIES') {
+      this.requiredHits = 5;
+      this.maxShotsInDrill = 25;
+      this.maxDurationSec = 50.0;
+    } else if (this.drillMode === 'FIRST_SHOT_DRILL') {
+      this.requiredHits = 5;
+      this.maxShotsInDrill = 5;
+      this.maxDurationSec = 60.0;
+    } else if (this.drillMode === 'SCATT_10SHOT_DIAG') {
+      this.requiredHits = 10;
+      this.maxShotsInDrill = 10;
+      this.maxDurationSec = 120.0;
+    } else if (this.drillMode === 'CADENCE_METRONOME') {
+      this.requiredHits = 5;
+      this.maxShotsInDrill = 15;
+      this.maxDurationSec = 45.0;
     }
 
-    const banner = document.getElementById('table-touch-banner');
-    if (banner) {
-      banner.classList.remove('visible');
+    // Reset hit lamps
+    for (let i = 1; i <= 5; i++) {
+      const lamp = document.getElementById(`lamp-dot-${i}`);
+      if (lamp) lamp.className = 'lamp-circle';
     }
 
     const readout = document.getElementById('hud-last-shot-readout');
     if (readout) {
-      readout.textContent = 'READY — AIM & TAP TO SHOOT';
+      readout.textContent = 'READY — AIM & TAP SCREEN';
       readout.style.color = '#38bdf8';
     }
 
-    this.updateTriggerButtonVisual();
     this.lastFrameMs = performance.now();
     cancelAnimationFrame(this.animFrameId);
     this.animFrameId = requestAnimationFrame((t) => this.loopRange(t));
   }
 
-  private performTableTouchAndZero() {
-    if (!this.isStationActive) return;
-
-    this.zeroGamma = this.rawGamma;
-    this.zeroBeta = this.rawBeta;
-    this.pointerYawDeg = 0;
-    this.pointerPitchDeg = 0;
-    this.pointerRollDeg = 0;
-    this.yawFilter.reset();
-    this.pitchFilter.reset();
-    this.rollFilter.reset();
-    this.biomech.resetDeltoidFatigue();
-
-    const now = performance.now();
-    if (this.currentShots.length === 0 && !this.isTableArmed) {
-      this.stationStartPerfMs = now;
-      this.nextMetronomeTickSec = this.cadenceIntervalSec;
-    }
-    this.lastRaiseFromTableMs = now;
-    this.isTableArmed = true;
-
-    sfx.playTakeUp();
-    const banner = document.getElementById('table-touch-banner');
-    if (banner) banner.classList.remove('visible');
-
-    const readout = document.getElementById('hud-last-shot-readout');
-    if (readout) {
-      readout.textContent = 'ARMED — ACQUIRE TARGET';
-      readout.style.color = '#38bdf8';
-    }
-  }
-
   // ===========================================================================
-  // REALISTIC TRIGGER MECHANICS (STAGE 1 SEAR WALL + STAGE 2 BREAK)
+  // TRIGGER ACTIONS (Direct, 2-Stage, Hold-Lock)
   // ===========================================================================
 
   private onTriggerPressStart() {
     if (!this.isStationActive || this.pendingFollowThroughShot) return;
 
-    if (!this.isTableArmed) {
-      this.isTableArmed = true;
-      this.stationStartPerfMs = performance.now();
-      this.lastRaiseFromTableMs = this.stationStartPerfMs;
-    }
-
-    if (this.triggerMode === 'TWO_STAGE_RELEASE') {
-      // Stage 1: Take up slack to the sear wall
+    if (this.triggerMode === 'DIRECT_COMPETITION') {
+      this.initiateShotBreak();
+    } else if (this.triggerMode === 'TWO_STAGE_RELEASE') {
       this.isStage1Held = true;
       this.stage1StartMs = performance.now();
       sfx.playTakeUp();
-      this.updateTriggerButtonVisual();
+      const fireBtn = document.getElementById('btn-fire');
+      fireBtn?.classList.add('stage1-engaged');
+      if (fireBtn) fireBtn.textContent = '⚡ WALL LOCKED — RELEASE';
     } else if (this.triggerMode === 'HOLD_SQUEEZE_LOCK') {
       if (this.currentHoldInZoneSec >= this.requiredHoldSec) {
         this.initiateShotBreak();
       } else {
         sfx.playJerk();
       }
-    } else {
-      // DIRECT_COMPETITION
-      this.initiateShotBreak();
     }
   }
 
   private onTriggerRelease() {
     if (!this.isStationActive) return;
+    const fireBtn = document.getElementById('btn-fire');
+    fireBtn?.classList.remove('stage1-engaged');
+    if (fireBtn) fireBtn.textContent = '🔥 PULL SEAR (เหนี่ยวไก)';
+
     if (this.triggerMode === 'TWO_STAGE_RELEASE' && this.isStage1Held) {
       this.isStage1Held = false;
-      this.updateTriggerButtonVisual();
-      if (!this.pendingFollowThroughShot && this.isTableArmed) {
+      if (!this.pendingFollowThroughShot) {
         this.initiateShotBreak();
       }
     }
@@ -533,7 +632,6 @@ class ScattUipmRangeController {
 
     const isHit = this.targetGeo.evaluateHit(this.currentRadialMm, 1.0);
 
-    // Queue 160ms post-shot follow-through capture so SCATT trace records blue follow-through
     this.pendingFollowThroughShot = {
       shotIndex: this.currentShots.length + 1,
       shotPerfMs: nowPerf,
@@ -566,7 +664,6 @@ class ScattUipmRangeController {
       this.targetGeo
     );
 
-    // If athlete jerked severely on trigger release, penalize radial error slightly if not already reflected
     const shotRecord: ShotRecord = {
       shotIndex: p.shotIndex,
       roundIndex: 1,
@@ -588,23 +685,23 @@ class ScattUipmRangeController {
 
     this.currentShots.push(shotRecord);
 
-    // Show Jerk Alert if detected
+    // Jerk Alert
     const jerkAlert = document.getElementById('range-jerk-alert');
     if (jerk.isJerk && jerkAlert) {
-      jerkAlert.textContent = `⚠️ TRIGGER FLINCH (${jerk.flinchDirection}) — Pull Error ${scatt.pullErrorMm}mm @ ${scatt.pullDirectionClock}h`;
+      jerkAlert.textContent = `⚠️ FLINCH (${jerk.flinchDirection}) — Pull Error ${scatt.pullErrorMm}mm`;
       jerkAlert.classList.add('visible');
       sfx.playJerk();
-      setTimeout(() => jerkAlert.classList.remove('visible'), 1600);
+      setTimeout(() => jerkAlert.classList.remove('visible'), 1500);
     }
 
-    // Update Ecoaims LED Lamps & Digital Score Readout
+    // Ecoaims Lamp update
     const readout = document.getElementById('hud-last-shot-readout');
     if (p.isHit) {
       this.hitsCount++;
       sfx.playHit();
       const lampIdx = ((this.hitsCount - 1) % 5) + 1;
       const lamp = document.getElementById(`lamp-dot-${lampIdx}`);
-      if (lamp) lamp.className = 'lamp-dot hit';
+      if (lamp) lamp.className = 'lamp-circle hit';
       if (readout) {
         readout.textContent = `HIT ${scatt.decimalScore.toFixed(1)} (${scatt.clockDirection}h) • ${p.splitSec.toFixed(2)}s`;
         readout.style.color = '#22c55e';
@@ -613,30 +710,18 @@ class ScattUipmRangeController {
       const lampIdx = (this.hitsCount % 5) + 1;
       const lamp = document.getElementById(`lamp-dot-${lampIdx}`);
       if (lamp) {
-        lamp.className = 'lamp-dot miss-flash';
+        lamp.className = 'lamp-circle miss-flash';
         setTimeout(() => {
-          if (lamp.classList.contains('miss-flash')) lamp.className = 'lamp-dot';
-        }, 550);
+          if (lamp.classList.contains('miss-flash')) lamp.className = 'lamp-circle';
+        }, 500);
       }
       if (readout) {
-        readout.textContent = `MISS ${scatt.decimalScore.toFixed(1)} (${scatt.clockDirection}h) • Pull ${scatt.pullErrorMm}mm`;
+        readout.textContent = `MISS ${scatt.decimalScore.toFixed(1)} (${scatt.clockDirection}h) • Err ${scatt.pullErrorMm}mm`;
         readout.style.color = '#ef4444';
       }
     }
 
-    // In FIRST_SHOT_DRILL, require touching the table again before the next shot!
-    if (this.drillMode === 'FIRST_SHOT_DRILL' && this.currentShots.length < this.maxShotsInDrill) {
-      this.isTableArmed = false;
-      const banner = document.getElementById('table-touch-banner');
-      if (banner) {
-        banner.classList.add('visible');
-        banner.innerHTML = `⬇️ <strong>FIRST-SHOT DRILL (${this.currentShots.length}/5):</strong> ลดปืนแตะโต๊ะอีกครั้ง (กด R หรือก้มมือถือ) เพื่อฝึกยกปืนนัดต่อไป`;
-      }
-    } else {
-      this.lastRaiseFromTableMs = performance.now();
-    }
-
-    // Check Series Completion Conditions
+    // Series Completion Check
     if (
       (this.drillMode === 'UIPM_5HIT_SERIES' && this.hitsCount >= this.requiredHits) ||
       (this.drillMode === 'CADENCE_METRONOME' && this.hitsCount >= this.requiredHits) ||
@@ -648,7 +733,7 @@ class ScattUipmRangeController {
   }
 
   // ===========================================================================
-  // MAIN 60FPS TELEMETRY & RENDERING LOOP
+  // 60 FPS MAIN LOOP
   // ===========================================================================
 
   private loopRange(nowMs: number) {
@@ -657,41 +742,32 @@ class ScattUipmRangeController {
     const dtSec = Math.min(0.1, Math.max(0.001, (nowMs - this.lastFrameMs) / 1000.0));
     this.lastFrameMs = nowMs;
 
-    // 1. Update Station Timer (once table is armed)
-    let elapsedSec = 0;
-    if (this.stationStartPerfMs > 0) {
-      elapsedSec = (nowMs - this.stationStartPerfMs) / 1000.0;
-    }
+    // Station Timer
+    let elapsedSec = (nowMs - this.stationStartPerfMs) / 1000.0;
     const remainingSec = Math.max(0, this.maxDurationSec - elapsedSec);
     const timerEl = document.getElementById('range-countdown-val');
     if (timerEl) {
-      timerEl.textContent = remainingSec.toFixed(1);
-      timerEl.style.color = remainingSec <= 10.0 ? '#ef4444' : '#f8fafc';
+      timerEl.innerHTML = `${remainingSec.toFixed(1)}<span>s</span>`;
+      timerEl.style.color = remainingSec <= 10.0 ? '#ef4444' : '#ffffff';
     }
 
-    if (this.isTableArmed && remainingSec <= 0) {
+    if (remainingSec <= 0) {
       this.completeSeries(true);
       return;
     }
 
-    // Cadence Metronome Beep
-    if (this.drillMode === 'CADENCE_METRONOME' && this.isTableArmed && elapsedSec >= this.nextMetronomeTickSec) {
+    // Cadence Metronome
+    if (this.drillMode === 'CADENCE_METRONOME' && elapsedSec >= this.nextMetronomeTickSec) {
       sfx.playMetronomeTick();
       this.nextMetronomeTickSec += this.cadenceIntervalSec;
     }
 
-    // 2. Gradual HR Recovery during station (-0.35 BPM/sec unless breath held)
-    if (this.hrSource !== 'HARDWARE_BLE') {
-      const hrDelta = this.isHoldingBreath ? 0.15 : -0.32;
-      this.currentBpm = Math.max(62, Math.min(198, this.currentBpm + hrDelta * dtSec));
-    }
-
-    // 3. Step Physiological Sway, Systolic Pulse, Hypoxia & Deltoid Fatigue
+    // Physiological Simulation Tick
     const phys = this.biomech.stepPhysiology(
       dtSec,
       this.currentBpm,
       this.isHoldingBreath,
-      this.isTableArmed
+      true
     );
     this.currentO2Stress01 = phys.hypoxicStress01;
     this.currentDeltoidPct = phys.deltoidFatiguePct;
@@ -699,52 +775,54 @@ class ScattUipmRangeController {
     if (phys.isSystolicPeak && !this.lastSystolicPeak) {
       const pulseDot = document.getElementById('hud-pulse-dot');
       pulseDot?.classList.add('beat');
-      if (this.currentBpm >= 135) {
+      if (this.currentBpm >= 140) {
         sfx.playHeartbeat(Math.min(1, (this.currentBpm - 100) / 90));
       }
       setTimeout(() => pulseDot?.classList.remove('beat'), 110);
     }
     this.lastSystolicPeak = phys.isSystolicPeak;
 
-    // 4. Fuse Hardware Gyroscope / Pointer + 1-Euro Filter + Physiology
-    let baseYawDeg = this.pointerYawDeg;
-    let basePitchDeg = this.pointerPitchDeg;
-    let baseRollDeg = this.pointerRollDeg;
+    // FUSE ORIENTATION SENSORS + DRAG + PHYSIOLOGICAL SWAY
+    let targetYawDeg = 0;
+    let targetPitchDeg = 0;
+    let targetRollDeg = 0;
 
     if (this.hasGyro) {
-      baseYawDeg = (this.rawGamma - this.zeroGamma) * 0.26 * this.sensitivityMult;
-      basePitchDeg = (this.rawBeta - this.zeroBeta) * 0.26 * this.sensitivityMult;
-      baseRollDeg = (this.rawGamma - this.zeroGamma) * 0.35;
+      // Relative yaw & pitch from zero position
+      targetYawDeg = (this.gyroContinuousYawDeg - this.zeroYawDeg) * 0.32 * this.sensitivityMult;
+      targetPitchDeg = (this.gyroContinuousPitchDeg - this.zeroPitchDeg) * 0.32 * this.sensitivityMult;
+      targetRollDeg = this.rawRollDeg - this.zeroRollDeg;
     } else {
-      baseYawDeg *= this.sensitivityMult;
-      basePitchDeg *= this.sensitivityMult;
+      targetYawDeg = this.pointerYawDeg * this.sensitivityMult;
+      targetPitchDeg = this.pointerPitchDeg * this.sensitivityMult;
     }
 
-    // Stage 1 sear engagement steadies wrist slightly (15% damping)
-    const stage1Damp = this.isStage1Held ? 0.84 : 1.0;
+    // Add finger drag offset
+    targetYawDeg += this.dragYawDeg;
+    targetPitchDeg += this.dragPitchDeg;
 
-    const totalYawDeg = this.yawFilter.filter(baseYawDeg + phys.swayYawDeg * stage1Damp, dtSec);
-    const totalPitchDeg = this.pitchFilter.filter(basePitchDeg + phys.swayPitchDeg * stage1Damp, dtSec);
-    this.currentCantDeg = this.rollFilter.filter(baseRollDeg, dtSec);
+    // Filter using 1-Euro Filter
+    const totalYaw = this.yawFilter.filter(targetYawDeg + phys.swayYawDeg, dtSec);
+    const totalPitch = this.pitchFilter.filter(targetPitchDeg + phys.swayPitchDeg, dtSec);
+    this.currentCantDeg = this.rollFilter.filter(targetRollDeg, dtSec);
+    this.currentFrontSightShiftMm = phys.frontSightPulseMm;
 
-    // Front sight micro-shift inside rear notch (driven by pulse + angular velocity)
-    this.currentFrontSightShiftMm = phys.frontSightPulseMm * (this.isStage1Held ? 0.75 : 1.15);
-
-    const targetCoords = this.targetGeo.anglesToTargetMm(
-      totalYawDeg,
-      totalPitchDeg,
+    // Convert angles to target plane (mm)
+    const coords = this.targetGeo.anglesToTargetMm(
+      totalYaw,
+      totalPitch,
       this.currentCantDeg,
       this.currentFrontSightShiftMm
     );
-    this.currentXMm = targetCoords.xMm;
-    this.currentYMm = targetCoords.yMm;
-    this.currentRadialMm = targetCoords.radialErrorMm;
+    this.currentXMm = coords.xMm;
+    this.currentYMm = coords.yMm;
+    this.currentRadialMm = coords.radialErrorMm;
 
-    // Push sample into 2000ms SCATT Biomechanics Buffer
-    const sample: MotionSample = {
+    // Push sample for SCATT analytics
+    this.biomech.pushSample({
       timestampMs: nowMs,
-      yawDeg: totalYawDeg,
-      pitchDeg: totalPitchDeg,
+      yawDeg: totalYaw,
+      pitchDeg: totalPitch,
       rollDeg: this.currentCantDeg,
       accelX: this.latestAccel.x,
       accelY: this.latestAccel.y,
@@ -752,31 +830,29 @@ class ScattUipmRangeController {
       xMm: this.currentXMm,
       yMm: this.currentYMm,
       frontSightShiftMm: this.currentFrontSightShiftMm
-    };
-    this.biomech.pushSample(sample);
+    });
 
-    // Maintain 1.0s trail for live SCATT trace & live speed (mm/s)
+    // Recent trail
     this.recentAimTrail.push({ tMs: nowMs, xMm: this.currentXMm, yMm: this.currentYMm });
     while (this.recentAimTrail.length > 0 && nowMs - this.recentAimTrail[0].tMs > 1000) {
       this.recentAimTrail.shift();
     }
     this.computeLiveTraceSpeed();
 
-    // Check if pending follow-through window (+160ms) has completed
+    // Check pending follow-through
     if (this.pendingFollowThroughShot && nowMs - this.pendingFollowThroughShot.shotPerfMs >= 160) {
       this.finalizePendingShot();
       if (!this.isStationActive) return;
     }
 
-    // Update Hold-and-Squeeze Lock Progress
-    const inHitZone = this.currentRadialMm <= this.targetGeo.getHitZoneRadiusMm();
-    if (this.isTableArmed && inHitZone) {
+    // Hold-and-Squeeze timer
+    if (this.currentRadialMm <= 29.75) {
       this.currentHoldInZoneSec = Math.min(this.requiredHoldSec, this.currentHoldInZoneSec + dtSec);
     } else {
-      this.currentHoldInZoneSec = Math.max(0, this.currentHoldInZoneSec - dtSec * 1.6);
+      this.currentHoldInZoneSec = Math.max(0, this.currentHoldInZoneSec - dtSec * 1.5);
     }
 
-    this.updateLiveHudTelemetry();
+    this.updateHudTelemetry();
     this.renderRangeCanvas();
 
     this.animFrameId = requestAnimationFrame((t) => this.loopRange(t));
@@ -794,99 +870,39 @@ class ScattUipmRangeController {
         this.recentAimTrail[i].yMm - this.recentAimTrail[i - 1].yMm
       );
     }
-    const spanSec =
-      (this.recentAimTrail[this.recentAimTrail.length - 1].tMs - this.recentAimTrail[0].tMs) / 1000.0;
+    const spanSec = (this.recentAimTrail[this.recentAimTrail.length - 1].tMs - this.recentAimTrail[0].tMs) / 1000.0;
     this.liveTraceSpeedMmPerSec = spanSec > 0.05 ? Math.round(dist / spanSec) : 0;
   }
 
-  private updateLiveHudTelemetry() {
+  private updateHudTelemetry() {
     const bpmEl = document.getElementById('hud-bpm-val');
     if (bpmEl) bpmEl.textContent = Math.round(this.currentBpm).toString();
 
     const speedEl = document.getElementById('hud-trace-speed');
     if (speedEl) {
       speedEl.textContent = this.liveTraceSpeedMmPerSec.toString();
-      speedEl.style.color =
-        this.liveTraceSpeedMmPerSec <= 95
-          ? '#22c55e'
-          : this.liveTraceSpeedMmPerSec <= 155
-          ? '#eab308'
-          : '#ef4444';
+      speedEl.style.color = this.liveTraceSpeedMmPerSec <= 100 ? '#22c55e' : '#f59e0b';
     }
 
     const cantEl = document.getElementById('hud-cant-deg');
     if (cantEl) {
       cantEl.textContent = `${this.currentCantDeg >= 0 ? '+' : ''}${this.currentCantDeg.toFixed(1)}°`;
-      cantEl.style.color = Math.abs(this.currentCantDeg) > 2.5 ? '#ef4444' : '#f8fafc';
+      cantEl.style.color = Math.abs(this.currentCantDeg) > 2.5 ? '#ef4444' : '#ffffff';
     }
 
     const o2Bar = document.getElementById('bar-o2');
     if (o2Bar) {
-      const o2RemainingPct = Math.round(Math.max(0, 1.0 - this.currentO2Stress01) * 100);
-      o2Bar.style.width = `${o2RemainingPct}%`;
-      o2Bar.style.background = this.currentO2Stress01 > 0.35 ? '#ef4444' : '#38bdf8';
+      o2Bar.style.width = `${Math.round(Math.max(0, 1.0 - this.currentO2Stress01) * 100)}%`;
     }
 
     const deltoidBar = document.getElementById('bar-deltoid');
     if (deltoidBar) {
       deltoidBar.style.width = `${this.currentDeltoidPct}%`;
     }
-
-    this.updateTriggerButtonVisual();
-  }
-
-  private updateTriggerButtonVisual() {
-    const fireBtn = document.getElementById('btn-fire');
-    const stabLabel = document.getElementById('stability-label');
-    if (!fireBtn || !stabLabel) return;
-
-    if (!this.isTableArmed) {
-      fireBtn.className = 'btn btn-trigger-action disabled-lock';
-      fireBtn.textContent = '⬇️ TOUCH TABLE FIRST';
-      stabLabel.textContent = 'TABLE START REQUIRED';
-      stabLabel.style.color = '#fbbf24';
-      return;
-    }
-
-    if (this.triggerMode === 'TWO_STAGE_RELEASE') {
-      if (this.isStage1Held) {
-        fireBtn.className = 'btn btn-trigger-action stage1-engaged';
-        fireBtn.textContent = '⚡ SEAR ENGAGED — RELEASE TO FIRE';
-        stabLabel.textContent = 'STAGE 1 WALL LOCKED — CRISP RELEASE';
-        stabLabel.style.color = '#fbbf24';
-      } else {
-        fireBtn.className = 'btn btn-trigger-action unlocked';
-        fireBtn.textContent = '🔥 HOLD STAGE 1 ➔ RELEASE';
-        stabLabel.textContent =
-          this.currentRadialMm <= 29.75 ? 'IN 7-RING HIT ZONE (59.5mm)' : 'ALIGN SIGHTS TO BLACK ZONE';
-        stabLabel.style.color = this.currentRadialMm <= 29.75 ? '#22c55e' : '#94a3b8';
-      }
-    } else if (this.triggerMode === 'HOLD_SQUEEZE_LOCK') {
-      const pct = Math.min(100, Math.round((this.currentHoldInZoneSec / this.requiredHoldSec) * 100));
-      if (pct >= 100) {
-        fireBtn.className = 'btn btn-trigger-action unlocked';
-        fireBtn.textContent = '🔥 SEAR UNLOCKED — FIRE!';
-        stabLabel.textContent = `STABILITY LOCKED (100%)`;
-        stabLabel.style.color = '#22c55e';
-      } else {
-        fireBtn.className = 'btn btn-trigger-action disabled-lock';
-        fireBtn.textContent = `🔒 HOLD IN BLACK (${pct}%)`;
-        stabLabel.textContent = `HOLD STEADY: ${this.currentHoldInZoneSec.toFixed(2)}s / ${this.requiredHoldSec}s`;
-        stabLabel.style.color = '#eab308';
-      }
-    } else {
-      fireBtn.className = 'btn btn-trigger-action unlocked';
-      fireBtn.textContent = '🔥 PULL SEAR (DIRECT)';
-      stabLabel.textContent =
-        this.currentRadialMm <= 29.75
-          ? `DEC SCORE EST: ${this.targetGeo.computeDecimalScore(this.currentRadialMm).toFixed(1)}`
-          : 'OUTSIDE 59.5mm HIT ZONE';
-      stabLabel.style.color = this.currentRadialMm <= 29.75 ? '#22c55e' : '#94a3b8';
-    }
   }
 
   // ===========================================================================
-  // RENDERING: 10m ECOAIMS TARGET + LIVE SCATT TRACE + 3D IRON SIGHTS
+  // CANVAS RENDERING (Target, Sights, SCATT Trail)
   // ===========================================================================
 
   private renderRangeCanvas() {
@@ -896,103 +912,61 @@ class ScattUipmRangeController {
     if (w === 0 || h === 0) return;
 
     ctx.clearRect(0, 0, w, h);
-
     const cx = w * 0.5;
-    const cy = h * 0.47;
-    // Scale: 170mm full ISSF target fits comfortably in viewport
+    const cy = h * 0.48;
     const minDim = Math.min(w, h);
-    const pxPerMm = (minDim * 0.74) / 170.0;
+    const pxPerMm = (minDim * 0.72) / 170.0;
 
-    // 1. Subtle 10m Indoor Shooting Lane Background Grid
-    ctx.strokeStyle = 'rgba(30, 41, 59, 0.35)';
-    ctx.lineWidth = 1;
-    const gridStep = 40;
-    for (let x = cx % gridStep; x < w; x += gridStep) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = cy % gridStep; y < h; y += gridStep) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
+    // 1. Subtle Target Lane Background
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(0, 0, w, h);
 
-    // 2. Official UIPM Ecoaims LT600 Target Box Housing (170mm x 170mm cream face)
-    const boxHalfPx = 82.0 * pxPerMm;
-    ctx.fillStyle = '#e2dcc8'; // ISSF Non-reflecting cream target paper
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 3;
+    // 2. Official UIPM Ecoaims Target Paper (Cream face)
+    const boxHalfPx = 80.0 * pxPerMm;
+    ctx.fillStyle = '#e2dcc8';
     ctx.beginPath();
-    ctx.roundRect(cx - boxHalfPx, cy - boxHalfPx, boxHalfPx * 2, boxHalfPx * 2, 8);
+    ctx.roundRect(cx - boxHalfPx, cy - boxHalfPx, boxHalfPx * 2, boxHalfPx * 2, 10);
     ctx.fill();
-    ctx.stroke();
 
-    // 3. Black Hit Zone (Rings 7, 8, 9, 10, Inner-10 = 59.5mm diameter / 29.75mm radius)
-    const blackRadiusPx = this.targetGeo.getHitZoneRadiusMm() * pxPerMm;
+    // 3. Black Hit Zone (59.5mm diameter = 29.75mm radius)
+    const blackRadiusPx = 29.75 * pxPerMm;
     ctx.fillStyle = '#090b10';
     ctx.beginPath();
     ctx.arc(cx, cy, blackRadiusPx, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. ISSF Concentric Scoring Rings (1 to 10 + Inner X)
+    // 4. Scoring Rings
     for (let ring = 1; ring <= 11; ring++) {
       const rPx = this.targetGeo.getRingRadiusMm(ring) * pxPerMm;
       ctx.beginPath();
       ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-      if (ring <= 6) {
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-        ctx.lineWidth = 1;
-      } else if (ring === 7) {
-        ctx.strokeStyle = '#22c55e'; // Highlight 59.5mm UIPM Hit Threshold slightly
-        ctx.lineWidth = 1.4;
-      } else {
-        ctx.strokeStyle = 'rgba(226, 232, 240, 0.35)';
-        ctx.lineWidth = 1;
-      }
+      ctx.strokeStyle = ring === 7 ? '#22c55e' : (ring <= 6 ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.3)');
+      ctx.lineWidth = ring === 7 ? 1.6 : 1;
       ctx.stroke();
     }
 
-    // Sub-6 O'Clock Zero Reference Marker if selected
-    if (this.sightZeroMode === 'SUB_SIX_HOLD') {
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(cx - 24, cy + blackRadiusPx);
-      ctx.lineTo(cx + 24, cy + blackRadiusPx);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // 5. Previous Shot Impacts in Current Series
+    // 5. Previous Shots in Series
     for (const s of this.currentShots) {
       const sx = cx + s.offsetMmX * pxPerMm;
       const sy = cy - s.offsetMmY * pxPerMm;
-      ctx.fillStyle = s.isHit ? 'rgba(34, 197, 94, 0.88)' : 'rgba(239, 68, 68, 0.88)';
+      ctx.fillStyle = s.isHit ? '#22c55e' : '#ef4444';
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(sx, sy, 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 9px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(s.shotIndex.toString(), sx, sy - 7);
     }
 
-    // 6. Live SCATT Optical Trace (-1000ms Green -> -250ms Yellow)
-    if (this.showLiveTrace && this.isTableArmed && this.recentAimTrail.length > 2) {
+    // 6. Live SCATT Trace
+    if (this.showLiveTrace && this.recentAimTrail.length > 2) {
       const now = performance.now();
       for (let i = 1; i < this.recentAimTrail.length; i++) {
         const p0 = this.recentAimTrail[i - 1];
         const p1 = this.recentAimTrail[i];
         const ageMs = now - p1.tMs;
-        ctx.strokeStyle = ageMs <= 250 ? '#eab308' : '#22c55e';
-        ctx.lineWidth = ageMs <= 250 ? 2.2 : 1.5;
+        ctx.strokeStyle = ageMs <= 220 ? '#eab308' : '#22c55e';
+        ctx.lineWidth = ageMs <= 220 ? 2.2 : 1.4;
         ctx.beginPath();
         ctx.moveTo(cx + p0.xMm * pxPerMm, cy - p0.yMm * pxPerMm);
         ctx.lineTo(cx + p1.xMm * pxPerMm, cy - p1.yMm * pxPerMm);
@@ -1000,67 +974,48 @@ class ScattUipmRangeController {
       }
     }
 
-    // 7. 3D Projected Front & Rear Match Iron Sights + Cant Bubble Level
+    // 7. 3D Match Iron Sights
     const aimPxX = cx + this.currentXMm * pxPerMm;
-    // In SUB_SIX_HOLD, when the athlete aims at the center (0,0), the sights are visually held at the bottom edge of the black circle
-    const sightVisualOffsetY = this.sightZeroMode === 'SUB_SIX_HOLD' ? blackRadiusPx : 0;
-    const aimPxY = cy - this.currentYMm * pxPerMm + sightVisualOffsetY;
+    const visualOffset = this.sightZeroMode === 'SUB_SIX_HOLD' ? blackRadiusPx : 0;
+    const aimPxY = cy - this.currentYMm * pxPerMm + visualOffset;
 
     ctx.save();
     ctx.translate(aimPxX, aimPxY);
     ctx.rotate((this.currentCantDeg * Math.PI) / 180.0);
 
-    // Front Sight Post (4.2mm wide match blade)
-    const frontShiftPx = this.currentFrontSightShiftMm * pxPerMm * 4.5;
-    const postHalfW = 7;
-    const postH = 44;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    // Front Sight Post
+    const frontShift = this.currentFrontSightShiftMm * pxPerMm * 4;
+    const postW = 14;
+    const postH = 42;
+    ctx.fillStyle = '#0f172a';
     ctx.strokeStyle = this.currentRadialMm <= 29.75 ? '#22c55e' : '#38bdf8';
     ctx.lineWidth = 1.5;
-    ctx.fillRect(-postHalfW + frontShiftPx, 0, postHalfW * 2, postH);
-    ctx.strokeRect(-postHalfW + frontShiftPx, 0, postHalfW * 2, postH);
+    ctx.fillRect(-postW / 2 + frontShift, 0, postW, postH);
+    ctx.strokeRect(-postW / 2 + frontShift, 0, postW, postH);
 
-    // Red/Green Fiber Optic Dot near top of Front Sight Post
-    ctx.fillStyle = this.currentRadialMm <= 29.75 ? '#22c55e' : '#f43f5e';
+    // Fiber optic bead
+    ctx.fillStyle = this.currentRadialMm <= 29.75 ? '#22c55e' : '#ef4444';
     ctx.beginPath();
-    ctx.arc(frontShiftPx, 5, 2.5, 0, Math.PI * 2);
+    ctx.arc(frontShift, 5, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Rear Sight Notch (Left & Right shoulders with light bars on either side)
-    const notchGapHalf = 13;
-    const bladeW = 34;
-    const bladeH = 38;
-    ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
+    // Rear Sight Notch
+    const notchGap = 26;
+    const shoulderW = 34;
+    const shoulderH = 36;
+    ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.6)';
     ctx.lineWidth = 1.2;
-    // Left rear blade
-    ctx.fillRect(-notchGapHalf - bladeW, 2, bladeW, bladeH);
-    ctx.strokeRect(-notchGapHalf - bladeW, 2, bladeW, bladeH);
-    // Right rear blade
-    ctx.fillRect(notchGapHalf, 2, bladeW, bladeH);
-    ctx.strokeRect(notchGapHalf, 2, bladeW, bladeH);
-
-    // Spirit Bubble Cant Level below rear sight
-    const levelW = 56;
-    const levelY = 46;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-    ctx.strokeStyle = Math.abs(this.currentCantDeg) > 2.5 ? '#ef4444' : 'rgba(148, 163, 184, 0.5)';
-    ctx.beginPath();
-    ctx.roundRect(-levelW / 2, levelY, levelW, 8, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    const bubbleX = Math.max(-20, Math.min(20, -this.currentCantDeg * 3.5));
-    ctx.fillStyle = Math.abs(this.currentCantDeg) > 2.5 ? '#ef4444' : '#22c55e';
-    ctx.beginPath();
-    ctx.arc(bubbleX, levelY + 4, 3.2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(-notchGap / 2 - shoulderW, 2, shoulderW, shoulderH);
+    ctx.strokeRect(-notchGap / 2 - shoulderW, 2, shoulderW, shoulderH);
+    ctx.fillRect(notchGap / 2, 2, shoulderW, shoulderH);
+    ctx.strokeRect(notchGap / 2, 2, shoulderW, shoulderH);
 
     ctx.restore();
   }
 
   // ===========================================================================
-  // SERIES COMPLETION & INTERACTIVE SCATT REPLAY ANALYZER
+  // SERIES COMPLETION & SCATT REPLAY
   // ===========================================================================
 
   private completeSeries(isTimedOut: boolean) {
@@ -1074,7 +1029,7 @@ class ScattUipmRangeController {
     const firstShotSec =
       this.currentShots.length > 0 ? this.currentShots[0].timeSinceSeriesStartSec : totalSec;
 
-    const seriesResult = PerformanceAnalytics.computeSeriesMetrics(
+    const res = PerformanceAnalytics.computeSeriesMetrics(
       1,
       0,
       0,
@@ -1086,13 +1041,12 @@ class ScattUipmRangeController {
       this.hrSource,
       this.drillMode
     );
-    seriesResult.isTimedOut = isTimedOut;
-
-    SessionStorageExport.saveSeries(seriesResult);
-    this.lastSeriesResult = seriesResult;
+    res.isTimedOut = isTimedOut;
+    SessionStorageExport.saveSeries(res);
+    this.lastSeriesResult = res;
     this.selectedReplayShotIdx = this.currentShots.length > 0 ? 0 : -1;
 
-    this.populateResultScreen(seriesResult);
+    this.populateResultScreen(res);
     this.switchScreen('view-result');
   }
 
@@ -1104,122 +1058,109 @@ class ScattUipmRangeController {
         : `✅ SERIES COMPLETE — ${series.totalRangeStationDurationSec.toFixed(2)}s`;
     }
 
-    // 1. Summary Metrics Table
     const summaryTable = document.getElementById('table-result-metrics');
     if (summaryTable) {
       summaryTable.innerHTML = `
         <tr>
-          <td>Total Station Time / First Shot</td>
-          <td><strong>${series.totalRangeStationDurationSec.toFixed(2)}s</strong> (1st Shot: <strong>${series.firstShotDurationSec.toFixed(2)}s</strong>)</td>
+          <td>เวลาเข้าช่องยิงรวม</td>
+          <td><strong>${series.totalRangeStationDurationSec.toFixed(2)}s</strong> (ยิงนัดแรก: <strong>${series.firstShotDurationSec.toFixed(2)}s</strong>)</td>
         </tr>
         <tr>
-          <td>Hits / Shots (Hit Accuracy)</td>
+          <td>จำนวนเข้าเป้า (Accuracy)</td>
           <td><strong>${series.hitsCleared} / ${series.totalShotsFired}</strong> (${series.accuracyPct}%)</td>
         </tr>
         <tr>
-          <td>Avg ISSF Decimal Score</td>
-          <td><strong style="color:#38bdf8;">${series.avgDecimalScore.toFixed(1)}</strong> / 10.9</td>
+          <td>คะแนนทศนิยมเฉลี่ย (ISSF)</td>
+          <td><strong style="color:#2563eb;">${series.avgDecimalScore.toFixed(1)}</strong> / 10.9</td>
         </tr>
         <tr>
-          <td>SCATT Avg Muzzle Speed (L)</td>
-          <td><strong style="color:${series.avgTraceLengthMmPerSec <= 105 ? '#22c55e' : '#eab308'};">${series.avgTraceLengthMmPerSec.toFixed(1)} mm/s</strong> (Pro Target &lt; 95 mm/s)</td>
+          <td>SCATT Muzzle Speed (L)</td>
+          <td><strong>${series.avgTraceLengthMmPerSec.toFixed(1)} mm/s</strong></td>
         </tr>
         <tr>
-          <td>7-Ring Hold Stability &amp; Pull Error</td>
-          <td>Stability <strong>${series.avgStability7RingPct}%</strong> • Trigger Pull Err <strong>${series.avgPullErrorMm.toFixed(1)} mm</strong></td>
-        </tr>
-        <tr>
-          <td>Group MPI (X, Y) &amp; Extreme Spread</td>
-          <td>MPI (${series.meanPointOfImpactMm.x}mm, ${series.meanPointOfImpactMm.y}mm) • Spread ${series.extremeSpreadMm}mm</td>
+          <td>ระยะกระตุกไก (Pull Error)</td>
+          <td><strong>${series.avgPullErrorMm.toFixed(1)} mm</strong></td>
         </tr>
       `;
     }
 
-    // 2. Shot-by-Shot Table & Selector Pills
-    const pillsContainer = document.getElementById('scatt-shot-pills');
+    // Populate Shot Breakdown & Selector Pills
+    const pillsRow = document.getElementById('scatt-shot-pills');
     const tbody = document.getElementById('tbody-shots-breakdown');
-    if (pillsContainer && tbody) {
-      pillsContainer.innerHTML = '';
+    if (pillsRow && tbody) {
+      pillsRow.innerHTML = '';
       tbody.innerHTML = '';
 
-      // Add "ALL SHOTS" pill
       const allPill = document.createElement('button');
       allPill.className = `shot-pill ${this.selectedReplayShotIdx === -1 ? 'active' : ''}`;
       allPill.textContent = 'ALL SHOTS';
       allPill.addEventListener('click', () => {
         this.selectedReplayShotIdx = -1;
-        this.refreshShotPillsAndReplay(series);
+        this.refreshReplay(series);
       });
-      pillsContainer.appendChild(allPill);
+      pillsRow.appendChild(allPill);
 
       series.shots.forEach((s, idx) => {
         const pill = document.createElement('button');
-        pill.className = `shot-pill ${s.isHit ? 'hit-pill' : 'miss-pill'} ${
-          this.selectedReplayShotIdx === idx ? 'active' : ''
-        }`;
+        pill.className = `shot-pill ${s.isHit ? 'hit-pill' : 'miss-pill'} ${this.selectedReplayShotIdx === idx ? 'active' : ''}`;
         pill.textContent = `#${s.shotIndex}: ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)`;
         pill.addEventListener('click', () => {
           this.selectedReplayShotIdx = idx;
-          this.refreshShotPillsAndReplay(series);
+          this.refreshReplay(series);
         });
-        pillsContainer.appendChild(pill);
+        pillsRow.appendChild(pill);
 
         const tr = document.createElement('tr');
-        tr.style.cursor = 'pointer';
-        tr.addEventListener('click', () => {
-          this.selectedReplayShotIdx = idx;
-          this.refreshShotPillsAndReplay(series);
-        });
         tr.innerHTML = `
           <td>#${s.shotIndex}</td>
-          <td style="color:${s.isHit ? '#22c55e' : '#ef4444'}; font-weight:700;">
+          <td style="color:${s.isHit ? '#16a34a' : '#dc2626'}; font-weight:700;">
             ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)
           </td>
           <td>${s.timeSinceSeriesStartSec.toFixed(2)}s (+${s.splitFromPrevShotSec.toFixed(2)}s)</td>
-          <td>${s.scatt.traceLengthMmPerSec} mm/s</td>
+          <td>${s.scatt.traceLengthMmPerSec}</td>
           <td>${s.scatt.stability7RingPct}%</td>
-          <td>${s.scatt.pullErrorMm}mm (${s.scatt.pullDirectionClock}h)</td>
+          <td>${s.scatt.pullErrorMm}mm</td>
           <td>${s.jerk.isJerk ? `⚠️ ${s.jerk.flinchDirection}` : 'CLEAN'}</td>
         `;
         tbody.appendChild(tr);
       });
     }
 
-    // 3. Coach Diagnostics
+    // Coach diagnostics
     const coachList = document.getElementById('result-coach-tips');
     if (coachList) {
-      coachList.innerHTML = series.coachDiagnostics.map(tip => `<li>${tip}</li>`).join('');
+      coachList.innerHTML = series.coachDiagnostics.map(t => `<li>${t}</li>`).join('');
     }
 
-    this.refreshShotPillsAndReplay(series);
+    this.refreshReplay(series);
   }
 
-  private refreshShotPillsAndReplay(series: SeriesResult) {
+  private refreshReplay(series: SeriesResult) {
     const pills = document.querySelectorAll('#scatt-shot-pills .shot-pill');
-    pills.forEach((el, i) => {
-      const pillIdx = i - 1; // index 0 is ALL SHOTS (-1)
-      el.classList.toggle('active', pillIdx === this.selectedReplayShotIdx);
+    pills.forEach((p, idx) => {
+      p.classList.toggle('active', idx - 1 === this.selectedReplayShotIdx);
     });
 
-    const detailEl = document.getElementById('scatt-selected-shot-detail');
-    if (detailEl) {
+    const detailBox = document.getElementById('scatt-selected-shot-detail');
+    if (detailBox) {
       if (this.selectedReplayShotIdx >= 0 && series.shots[this.selectedReplayShotIdx]) {
         const s = series.shots[this.selectedReplayShotIdx];
-        detailEl.innerHTML =
-          `<strong>Shot #${s.shotIndex} (${s.isHit ? 'HIT' : 'MISS'} ${s.scatt.decimalScore.toFixed(1)} @ ${s.scatt.clockDirection} o'clock):</strong> ` +
-          `Trace Speed L = <strong>${s.scatt.traceLengthMmPerSec} mm/s</strong> | ` +
-          `7-Ring Hold = <strong>${s.scatt.stability7RingPct}%</strong> | ` +
-          `Pull Error = <strong>${s.scatt.pullErrorMm}mm (${s.scatt.pullDirectionClock}h)</strong> | ` +
-          `Cant = <strong>${s.scatt.cantAngleAtShotDeg}°</strong>`;
+        detailBox.innerHTML = `
+          <strong>นัดที่ #${s.shotIndex} (${s.isHit ? 'เข้าเป้า HIT' : 'หลุดเป้า MISS'} ${s.scatt.decimalScore.toFixed(1)} @ ${s.scatt.clockDirection} นาฬิกา):</strong><br>
+          ความเร็วปากกระบอก L = <strong>${s.scatt.traceLengthMmPerSec} mm/s</strong> | 
+          ความนิ่งในวงดำ = <strong>${s.scatt.stability7RingPct}%</strong> | 
+          ระยะกระตุกไก = <strong>${s.scatt.pullErrorMm}mm (${s.scatt.pullDirectionClock}h)</strong> | 
+          องศาเอียงปืน = <strong>${s.scatt.cantAngleAtShotDeg}°</strong>
+        `;
       } else {
-        detailEl.innerHTML = `<strong>Overview (${series.totalShotsFired} Shots):</strong> แสดงจุดตกกระทบและศูนย์กลางกลุ่มกระสุน (MPI) ทั้งชุด — แตะปุ่ม #1..#${series.totalShotsFired} ด้านบนเพื่อดูเส้นทาง SCATT ทีละนัด`;
+        detailBox.innerHTML = `<strong>ภาพรวมทั้งชุด (${series.totalShotsFired} นัด):</strong> แสดงจุดตกกระทบทั้งหมด — แตะที่ปุ่มหมายเลขด้านบนเพื่อดูเส้นทาง SCATT ทีละนัด`;
       }
     }
 
-    this.renderScattReplayCanvas(series, this.selectedReplayShotIdx);
+    this.renderScattReplay(series, this.selectedReplayShotIdx);
   }
 
-  private renderScattReplayCanvas(series: SeriesResult, shotIdx: number) {
+  private renderScattReplay(series: SeriesResult, shotIdx: number) {
     const ctx = this.replayCtx;
     const w = this.replayCanvas.width;
     const h = this.replayCanvas.height;
@@ -1227,48 +1168,38 @@ class ScattUipmRangeController {
 
     const cx = w / 2;
     const cy = h / 2;
-    const pxPerMm = (w * 0.44) / 60.0; // Zoomed in around rings 4..10 so trace is crystal clear
+    const pxPerMm = (w * 0.44) / 60.0;
 
-    // Background paper & 59.5mm 7-Ring Hit Zone
-    ctx.fillStyle = '#131c2e';
+    // Background
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, w, h);
 
-    const blackR = 29.75 * pxPerMm;
-    ctx.fillStyle = '#070a0f';
+    // 7-Ring Black
+    ctx.fillStyle = '#020617';
     ctx.beginPath();
-    ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 29.75 * pxPerMm, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw ISSF Rings 4 to 11
-    for (let ring = 4; ring <= 11; ring++) {
-      const rPx = this.targetGeo.getRingRadiusMm(ring) * pxPerMm;
+    // Rings 4-11
+    for (let r = 4; r <= 11; r++) {
       ctx.beginPath();
-      ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-      ctx.strokeStyle = ring === 7 ? '#22c55e' : 'rgba(148, 163, 184, 0.3)';
-      ctx.lineWidth = ring === 7 ? 1.5 : 1;
+      ctx.arc(cx, cy, this.targetGeo.getRingRadiusMm(r) * pxPerMm, 0, Math.PI * 2);
+      ctx.strokeStyle = r === 7 ? '#22c55e' : 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = r === 7 ? 1.5 : 1;
       ctx.stroke();
     }
 
-    // Crosshair lines
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
-    ctx.beginPath();
-    ctx.moveTo(0, cy);
-    ctx.lineTo(w, cy);
-    ctx.moveTo(cx, 0);
-    ctx.lineTo(cx, h);
-    ctx.stroke();
-
-    const drawTraceForShot = (s: ShotRecord, highlight: boolean) => {
+    const drawTrace = (s: ShotRecord, highlight: boolean) => {
       const trace: TracePoint[] = s.trace || [];
       for (let i = 1; i < trace.length; i++) {
         const p0 = trace[i - 1];
         const p1 = trace[i];
         if (p1.tRelMs <= -200) {
-          ctx.strokeStyle = highlight ? '#22c55e' : 'rgba(34, 197, 94, 0.3)';
+          ctx.strokeStyle = highlight ? '#22c55e' : 'rgba(34, 197, 94, 0.25)';
         } else if (p1.tRelMs <= 0) {
-          ctx.strokeStyle = highlight ? '#eab308' : 'rgba(234, 179, 8, 0.35)';
+          ctx.strokeStyle = highlight ? '#eab308' : 'rgba(234, 179, 8, 0.25)';
         } else {
-          ctx.strokeStyle = highlight ? '#38bdf8' : 'rgba(56, 189, 248, 0.3)';
+          ctx.strokeStyle = highlight ? '#38bdf8' : 'rgba(56, 189, 248, 0.25)';
         }
         ctx.lineWidth = highlight ? 2.2 : 1.0;
         ctx.beginPath();
@@ -1277,7 +1208,6 @@ class ScattUipmRangeController {
         ctx.stroke();
       }
 
-      // Impact Point
       const ix = cx + s.offsetMmX * pxPerMm;
       const iy = cy - s.offsetMmY * pxPerMm;
       ctx.fillStyle = s.isHit ? '#22c55e' : '#ef4444';
@@ -1287,33 +1217,19 @@ class ScattUipmRangeController {
       ctx.arc(ix, iy, highlight ? 6.5 : 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 10px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`#${s.shotIndex}`, ix, iy - 9);
     };
 
     if (shotIdx >= 0 && series.shots[shotIdx]) {
-      // Draw other shots faintly, then selected shot brightly
-      series.shots.forEach((s, idx) => {
-        if (idx !== shotIdx) drawTraceForShot(s, false);
+      series.shots.forEach((s, i) => {
+        if (i !== shotIdx) drawTrace(s, false);
       });
-      drawTraceForShot(series.shots[shotIdx], true);
+      drawTrace(series.shots[shotIdx], true);
     } else {
-      series.shots.forEach(s => drawTraceForShot(s, true));
-      // Draw Mean Point of Impact (MPI) diamond
-      const mx = cx + series.meanPointOfImpactMm.x * pxPerMm;
-      const my = cy - series.meanPointOfImpactMm.y * pxPerMm;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(mx, my, 7, 0, Math.PI * 2);
-      ctx.stroke();
+      series.shots.forEach(s => drawTrace(s, true));
     }
   }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  new ScattUipmRangeController();
+  new PentaArenaController();
 });
