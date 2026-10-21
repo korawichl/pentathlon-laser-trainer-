@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>PENTA ARENA — 10m Laser Pistol Trainer</title>
-  <link rel="icon" type="image/png" href="./assets/icon-192-sDfmEcA_-sDfmEcA_.png">
-  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-FR3DU9EK-FR3DU9EK.png">
-  <link rel="manifest" href="./assets/manifest-CDwCFQBk-CDwCFQBk.json">
+  <link rel="icon" type="image/png" href="./assets/icon-192-sDfmEcA_.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-FR3DU9EK.png">
+  <link rel="manifest" href="./assets/manifest-CDwCFQBk.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PentaLaser">
-  <script type="module" crossorigin src="./assets/index-8A9Jq_pS.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-aLIFDOdu.css">
+  <script type="module" crossorigin src="./assets/index-Dw1vEPaf.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DH05UoEO.css">
 </head>
 <body>
   <div id="app">
@@ -208,15 +208,23 @@
       <!-- Flinch Alert Popup -->
       <div id="range-jerk-alert" class="hud-alert-bubble">⚠️ TRIGGER FLINCH DETECTED</div>
 
-      <!-- Mode 2 Strict Timeout Fail Modal -->
+      <!-- Mode 2 Strict Timeout Fail Modal (SOS Style) -->
       <div id="range-fail-modal" class="hud-modal-overlay" style="display: none;">
-        <div class="hud-modal-card">
-          <div class="modal-icon">⏱️</div>
-          <h2>เกินเวลา 2.50 วินาที!</h2>
-          <p id="fail-modal-desc">ในโหมด First-Shot Speed ต้องลั่นไกให้ทันภายใน 2.50 วินาที เกมหยุดทันที</p>
-          <div style="display: flex; gap: 10px; margin-top: 16px;">
-            <button id="btn-fail-retry" class="btn-hero-primary" style="flex: 1;">🔄 ลองใหม่อีกครั้ง</button>
-            <button id="btn-fail-lobby" class="btn-hero-secondary" style="flex: 1;">⚙️ หน้าหลัก</button>
+        <div class="hud-modal-card sos-card">
+          <div class="sos-beacon">
+            <span class="sos-icon">🚨</span>
+            <div class="sos-ping-ring"></div>
+          </div>
+          <div class="sos-badge">EMERGENCY TIMEOUT</div>
+          <h1 class="sos-glitch-title">TIME LATE</h1>
+          <p class="sos-subtitle">เวลาเกิน 2.50 วินาที! (โหมด First-Shot Speed)</p>
+          <div class="sos-status-box">
+            <div class="sos-time-stat">เวลาที่ใช้: <span id="sos-elapsed-time">2.51s</span> / 2.50s</div>
+            <div class="sos-rule-desc">นักกีฬาต้องสับไกและลั่นไกให้ทันภายใน 2.50 วินาที ระบบตัดสิทธิ์ทันที</div>
+          </div>
+          <div class="sos-actions">
+            <button id="btn-fail-retry" class="btn-sos-retry">⚡ ยิงแก้ตัวใหม่ทันที (RETRY)</button>
+            <button id="btn-fail-lobby" class="btn-sos-lobby">🏠 กลับหน้าล็อบบี้</button>
           </div>
         </div>
       </div>
@@ -277,36 +285,46 @@
         <div class="result-cards-grid">
           <div class="analytics-card">
             <div class="card-header-row">
-              <h3>🔬 SCATT Optical Trace Replay</h3>
+              <h3>🔬 SCATT Optical Trace & ชีวกลศาสตร์</h3>
               <div class="trace-legend">
                 <span class="leg-dot green">● Approach</span>
-                <span class="leg-dot yellow">● Hold</span>
+                <span class="leg-dot yellow">● Hold 1s</span>
                 <span class="leg-dot blue">● Follow</span>
               </div>
             </div>
             <div class="scatt-canvas-container">
               <canvas id="scatt-replay-canvas" width="320" height="320"></canvas>
             </div>
+            <div class="shot-selector-label" style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+              🎯 เลือกนัดเพื่อดูวิถีศูนย์และชีวกลศาสตร์ (Shot Selector):
+            </div>
             <div id="scatt-shot-pills" class="shot-pills-row"></div>
-            <div id="scatt-selected-shot-detail" class="shot-detail-box">แตะเลือกนัดด้านบน</div>
+            <div id="scatt-selected-shot-detail" class="shot-detail-box">แตะเลือกนัดด้านบนเพื่อดูข้อมูลเจาะลึก</div>
           </div>
 
           <div class="analytics-card">
             <div class="card-header-row">
-              <h3>📊 สถิติความแม่นยำ</h3>
+              <h3>📊 สถิติความแม่นยำรวม</h3>
             </div>
             <table class="modern-table" id="table-result-metrics"></table>
-            <h4 style="margin: 14px 0 6px 0; font-size: 13px;">📋 แจกแจงทีละนัด</h4>
+            
+            <h4 style="margin: 16px 0 8px 0; font-size: 13px; font-weight: 800; display: flex; justify-content: space-between; align-items: center;">
+              <span>📋 ตารางสรุปชีวกลศาสตร์ (Biomechanical Table)</span>
+              <small style="color: var(--text-muted); font-size: 10px; font-weight: normal;">(แตะแถวเพื่อเลือกนัด)</small>
+            </h4>
             <div class="table-scroll-wrap">
-              <table class="modern-table shot-table">
+              <table class="modern-table shot-table" id="table-shots-biomechanics">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>คะแนน</th>
-                    <th>เวลา</th>
-                    <th>SCATT L</th>
-                    <th>7-Ring%</th>
-                    <th>ไก</th>
+                    <th style="min-width: 32px;">#</th>
+                    <th style="min-width: 65px;">คะแนน</th>
+                    <th style="min-width: 55px;">เวลา</th>
+                    <th style="min-width: 125px;">Radial Error (mm) & ทิศ</th>
+                    <th style="min-width: 90px;">SCATT L (mm/s)</th>
+                    <th style="min-width: 105px;">ความนิ่ง (10R / 7R)</th>
+                    <th style="min-width: 110px;">Trigger Jerk (mm)</th>
+                    <th style="min-width: 75px;">Cant (องศา)</th>
+                    <th style="min-width: 170px;">คำแนะนำโค้ช</th>
                   </tr>
                 </thead>
                 <tbody id="tbody-shots-breakdown"></tbody>
@@ -316,7 +334,7 @@
         </div>
 
         <div class="analytics-card" style="margin-top: 14px;">
-          <h3 style="font-size: 14px; margin-bottom: 8px;">🤖 คำแนะนำจากโค้ช</h3>
+          <h3 style="font-size: 14px; margin-bottom: 8px;">🤖 สรุปภาพรวมและคำแนะนำโค้ช (Overall Coach Diagnosis)</h3>
           <ul id="result-coach-tips" class="coach-tips-grid"></ul>
         </div>
       </div>

@@ -135,6 +135,14 @@ class PentaArenaController {
     this.updateSoundButtons();
     this.resizeRangeCanvas();
     window.addEventListener('resize', () => this.resizeRangeCanvas());
+
+    // Preload audio and unlock Web Audio API on first touch/interaction
+    const unlockAudio = () => {
+      sfx.init();
+      sfx.ensureFemaleAudioPreloaded();
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
   }
 
   private switchScreen(screenId: 'view-setup' | 'view-range' | 'view-result') {
@@ -626,6 +634,8 @@ class PentaArenaController {
   // ===========================================================================
 
   private startRangeSession() {
+    sfx.init();
+    sfx.ensureFemaleAudioPreloaded();
     this.switchScreen('view-range');
     const modal = document.getElementById('range-fail-modal');
     if (modal) modal.style.display = 'none';
@@ -686,15 +696,20 @@ class PentaArenaController {
     this.animFrameId = requestAnimationFrame((t) => this.loopRange(t));
   }
 
-  // Strict 2.50s Failure in Mode 2
+  // Strict 2.50s Failure in Mode 2 (SOS Style)
   private triggerMode2TimeoutFail() {
     this.isStationActive = false;
     cancelAnimationFrame(this.animFrameId);
     sfx.playJerk();
+    if (navigator.vibrate) {
+      navigator.vibrate([150, 80, 150, 80, 300]);
+    }
+
     const modal = document.getElementById('range-fail-modal');
-    const desc = document.getElementById('fail-modal-desc');
-    if (desc) {
-      desc.textContent = `ในโหมด First-Shot Speed (นัดที่ ${this.currentShots.length + 1}/5) คุณลั่นไกช้าเกิน 2.50 วินาที ระบบจึงหยุดการฝึกซ้อมทันที`;
+    const elapsedEl = document.getElementById('sos-elapsed-time');
+    if (elapsedEl) {
+      const actualElapsed = ((performance.now() - this.repStartPerfMs) / 1000.0).toFixed(2);
+      elapsedEl.textContent = `${actualElapsed}s`;
     }
     if (modal) modal.style.display = 'flex';
   }
@@ -1206,6 +1221,8 @@ class PentaArenaController {
       if (this.drillMode === 'FIRST_SHOT_DRILL') {
         const avgSplit = (series.shots.reduce((a, b) => a + b.splitFromPrevShotSec, 0) / Math.max(1, series.shots.length)).toFixed(2);
         titleEl.textContent = `⚡ FIRST-SHOT DRILL COMPLETE — AVG: ${avgSplit}s`;
+      } else if (this.drillMode === 'SCATT_10SHOT_DIAG') {
+        titleEl.textContent = `🔬 SCATT BIOMECHANICAL REPORT — ${series.hitsCleared}/${series.totalShotsFired} HITS (${series.avgDecimalScore.toFixed(1)}/10.9)`;
       } else {
         titleEl.textContent = series.isTimedOut
           ? `⏱️ หมดเวลา (${series.hitsCleared}/${this.requiredHits} HITS)`
@@ -1251,7 +1268,7 @@ class PentaArenaController {
 
       const allPill = document.createElement('button');
       allPill.className = `shot-pill ${this.selectedReplayShotIdx === -1 ? 'active' : ''}`;
-      allPill.textContent = 'ALL';
+      allPill.textContent = '📋 ทั้งหมด (ALL)';
       allPill.addEventListener('click', () => {
         this.selectedReplayShotIdx = -1;
         this.refreshReplay(series);
@@ -1261,7 +1278,7 @@ class PentaArenaController {
       series.shots.forEach((s, idx) => {
         const pill = document.createElement('button');
         pill.className = `shot-pill ${this.selectedReplayShotIdx === idx ? 'active' : ''}`;
-        pill.textContent = `#${s.shotIndex}: ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)`;
+        pill.textContent = `#${s.shotIndex} (${s.scatt.decimalScore.toFixed(1)})`;
         pill.addEventListener('click', () => {
           this.selectedReplayShotIdx = idx;
           this.refreshReplay(series);
@@ -1269,20 +1286,29 @@ class PentaArenaController {
         pillsRow.appendChild(pill);
 
         const tr = document.createElement('tr');
+        tr.id = `shot-row-${idx}`;
         tr.style.cursor = 'pointer';
         tr.addEventListener('click', () => {
           this.selectedReplayShotIdx = idx;
           this.refreshReplay(series);
         });
+
+        const coachShotTip = s.jerk.isJerk
+          ? `⚠️ กระตุกไก (${s.jerk.flinchDirection}) ปลายกระบอกขยับ ${s.scatt.pullErrorMm}mm`
+          : s.scatt.traceLengthMmPerSec <= 95
+          ? '⭐ ข้อมือนิ่งมาก ศูนย์เล็งเสถียรระดับโปร'
+          : '💡 ปืนแกว่งขณะลั่นไก แนะนำกลั้นหายใจ';
+
         tr.innerHTML = `
-          <td>#${s.shotIndex}</td>
-          <td style="color:${s.isHit ? '#16a34a' : '#dc2626'}; font-weight:800;">
-            ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)
-          </td>
+          <td><strong>#${s.shotIndex}</strong></td>
+          <td><span class="badge-score ${s.isHit ? 'hit' : 'miss'}">${s.scatt.decimalScore.toFixed(1)} ${s.isHit ? '🟢' : '🔴'}</span></td>
           <td>${s.splitFromPrevShotSec.toFixed(2)}s</td>
-          <td>${s.scatt.traceLengthMmPerSec}</td>
-          <td>${s.scatt.stability7RingPct}%</td>
-          <td>${s.jerk.isJerk ? `⚠️ ${s.jerk.flinchDirection}` : 'CLEAN'}</td>
+          <td><strong>${s.radialErrorMm.toFixed(1)} mm</strong> (${s.scatt.clockDirection}h)</td>
+          <td><span class="badge-speed ${s.scatt.traceLengthMmPerSec <= 95 ? 'pro' : 'amateur'}">${s.scatt.traceLengthMmPerSec} mm/s</span></td>
+          <td>10R: <strong>${s.scatt.stability10RingPct}%</strong> | 7R: <strong>${s.scatt.stability7RingPct}%</strong></td>
+          <td>${s.jerk.isJerk ? `<span class="badge-jerk">⚠️ ${s.scatt.pullErrorMm}mm (${s.scatt.pullDirectionClock}h)</span>` : '<span class="badge-clean">✅ นุ่มนวล</span>'}</td>
+          <td><strong>${s.scatt.cantAngleAtShotDeg >= 0 ? '+' : ''}${s.scatt.cantAngleAtShotDeg}°</strong></td>
+          <td style="font-size:11px; color:#475569;">${coachShotTip}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -1303,36 +1329,77 @@ class PentaArenaController {
       p.classList.toggle('active', idx - 1 === this.selectedReplayShotIdx);
     });
 
+    const allRows = document.querySelectorAll('#tbody-shots-breakdown tr');
+    allRows.forEach((r, idx) => {
+      r.classList.toggle('selected-row', idx === this.selectedReplayShotIdx);
+    });
+
     const detailBox = document.getElementById('scatt-selected-shot-detail');
     if (detailBox) {
       if (this.selectedReplayShotIdx >= 0 && series.shots[this.selectedReplayShotIdx]) {
         const s = series.shots[this.selectedReplayShotIdx];
-        const statusHit = s.isHit ? '🟢 เข้าเป้า (HIT)' : '🔴 หลุดเป้า (MISS)';
+        const statusHit = s.isHit
+          ? '<span class="badge-score hit">🟢 เข้าเป้า (HIT)</span>'
+          : '<span class="badge-score miss">🔴 หลุดเป้า (MISS)</span>';
+        const coachDiagnosis = s.jerk.isJerk
+          ? `ตรวจพบแรงกระตุกไกจากการเหนี่ยวสะบัด (${s.jerk.flinchDirection}) ระยะดึงคลาดเคลื่อน ${s.scatt.pullErrorMm} mm ทิศ ${s.scatt.pullDirectionClock} นาฬิกา แนะนำฝึกเดินไกแบบคงที่และไม่กระตุกปลายนิ้วชี้`
+          : s.scatt.traceLengthMmPerSec <= 95
+          ? `ความนิ่งของข้อมือและข้อศอกยอดเยี่ยม (${s.scatt.traceLengthMmPerSec} mm/s) เข้าเกณฑ์นักกีฬาทีมชาติ ศูนย์เล็งนิ่งสนิทในวง 10 นานกว่า 1 วินาทีก่อนลั่นไก`
+          : `ศูนย์เล็งแกว่งตัวค่อนข้างเร็ว (${s.scatt.traceLengthMmPerSec} mm/s) แนะนำกดปุ่มกลั้นหายใจเพื่อลดแรงกระเพื่อมจากช่วงอกก่อนเหนี่ยวไก`;
+
         detailBox.innerHTML = `
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:6px; margin-bottom:6px;">
-            <div><strong>นัดที่:</strong> #${s.shotIndex} ${statusHit}</div>
-            <div><strong>คะแนนทศนิยม:</strong> ${s.scatt.decimalScore.toFixed(1)} / 10.9</div>
-            <div><strong>ทิศทางหน้าปัด:</strong> ${s.scatt.clockDirection} นาฬิกา</div>
-            <div><strong>ระยะห่างจุดศูนย์กลาง:</strong> ${s.radialErrorMm.toFixed(1)} mm</div>
-            <div><strong>SCATT Trace Speed (L):</strong> ${s.scatt.traceLengthMmPerSec} mm/s</div>
-            <div><strong>ความนิ่งในวงดำ (7-Ring):</strong> ${s.scatt.stability7RingPct}%</div>
-            <div><strong>ความนิ่งในวง 10:</strong> ${s.scatt.stability10RingPct}%</div>
-            <div><strong>ระยะกระตุกไก (Pull Err):</strong> ${s.scatt.pullErrorMm} mm @ ${s.scatt.pullDirectionClock}h</div>
-            <div><strong>องศาเอียงปืน (Cant):</strong> ${s.scatt.cantAngleAtShotDeg}°</div>
-            <div><strong>เวลาลั่นไก (Split):</strong> ${s.splitFromPrevShotSec.toFixed(2)}s</div>
+          <div class="bio-detail-header">
+            <div class="bio-shot-num">🎯 นัดที่ #${s.shotIndex}</div>
+            <div class="bio-status-tags">
+              ${statusHit}
+              <span class="bio-score-pill">คะแนน: <strong>${s.scatt.decimalScore.toFixed(1)}</strong> / 10.9</span>
+              <span class="bio-split-pill">เวลาลั่นไก: <strong>${s.splitFromPrevShotSec.toFixed(2)}s</strong></span>
+            </div>
           </div>
-          <div style="font-size:11px; color:#475569; border-top:1px dashed #cbd5e1; padding-top:4px;">
-            💡 <strong>การวินิจฉัยชีวกลศาสตร์:</strong> ${
-              s.jerk.isJerk
-                ? `ตรวจพบการสะบัดข้อมือ/กระตุกไก (${s.jerk.flinchDirection}) ระยะคลาดเคลื่อน ${s.scatt.pullErrorMm}mm แนะนำบีบไกนุ่มนวลและไม่กระตุกปลายนิ้วชี้`
-                : s.scatt.traceLengthMmPerSec <= 95
-                ? 'ความนิ่งของข้อมือและหัวไหล่ยอดเยี่ยมระดับนักกีฬาทีมชาติ ศูนย์เล็งนิ่งสนิท'
-                : 'ศูนย์เล็งยังแกว่งตัวค่อนข้างเร็วขณะลั่นไก แนะนำใช้ปุ่มกลั้นหายใจเพื่อลดแรงกระเพื่อมอก'
-            }
+
+          <div class="bio-grid">
+            <div class="bio-metric-cell">
+              <span class="cell-label">Radial Error (mm) & ทิศทาง</span>
+              <span class="cell-val"><strong>${s.radialErrorMm.toFixed(1)} mm</strong> (ทิศ ${s.scatt.clockDirection} นาฬิกา)</span>
+            </div>
+            <div class="bio-metric-cell">
+              <span class="cell-label">SCATT Trace Speed (L mm/s)</span>
+              <span class="cell-val ${s.scatt.traceLengthMmPerSec <= 95 ? 'text-success' : 'text-warn'}"><strong>${s.scatt.traceLengthMmPerSec} mm/s</strong> (เป้าหมายโปร &lt; 95)</span>
+            </div>
+            <div class="bio-metric-cell">
+              <span class="cell-label">ความนิ่งในวงแหวน (Stability %)</span>
+              <span class="cell-val">วง 10: <strong>${s.scatt.stability10RingPct}%</strong> | วง 7: <strong>${s.scatt.stability7RingPct}%</strong></span>
+            </div>
+            <div class="bio-metric-cell">
+              <span class="cell-label">Trigger Jerk (ระยะกระตุกไก)</span>
+              <span class="cell-val ${s.jerk.isJerk ? 'text-danger' : 'text-success'}">
+                ${s.jerk.isJerk ? `⚠️ ${s.scatt.pullErrorMm} mm (${s.jerk.flinchDirection})` : '✅ นุ่มนวล (Clean Break)'}
+              </span>
+            </div>
+            <div class="bio-metric-cell">
+              <span class="cell-label">Cant Angle (องศาการเอียงปืน)</span>
+              <span class="cell-val ${Math.abs(s.scatt.cantAngleAtShotDeg) > 2.5 ? 'text-danger' : 'text-neutral'}">
+                <strong>${s.scatt.cantAngleAtShotDeg >= 0 ? '+' : ''}${s.scatt.cantAngleAtShotDeg}°</strong> (${s.scatt.cantAngleAtShotDeg > 0.5 ? 'เอียงขวา' : s.scatt.cantAngleAtShotDeg < -0.5 ? 'เอียงซ้าย' : 'สมดุลดี'})
+              </span>
+            </div>
+            <div class="bio-metric-cell">
+              <span class="cell-label">สถานะการกลั้นหายใจ</span>
+              <span class="cell-val">${s.breathHeldAtShot ? '🫁 กลั้นหายใจ (+5% นิ่ง)' : 'ปกติ (ไม่ได้กลั้นหายใจ)'}</span>
+            </div>
+          </div>
+
+          <div class="bio-coach-box">
+            <span class="coach-icon">💡</span>
+            <div><strong>คำแนะนำโค้ชประจำนัด:</strong> ${coachDiagnosis}</div>
           </div>
         `;
       } else {
-        detailBox.innerHTML = `ภาพรวมทั้งชุด (${series.totalShotsFired} นัด) — แตะหมายเลขด้านบน (#1, #2, ...) เพื่อวิเคราะห์เจาะลึกวิถีศูนย์เล็งและชีวกลศาสตร์ทีละนัด`;
+        detailBox.innerHTML = `
+          <div style="text-align:center; padding:10px; color:var(--text-muted); font-size:12px;">
+            🎯 <strong>ภาพรวมวิถีทั้งชุด (${series.totalShotsFired} นัด)</strong><br>
+            <span style="font-size:11px;">แตะเลือกหมายเลขด้านบน (<strong>#1, #2, #3, #4, #5</strong>) หรือแตะที่ตารางด้านข้าง เพื่อดูวิถีศูนย์และค่าชีวกลศาสตร์เจาะลึกเฉพาะนัด</span>
+          </div>
+        `;
       }
     }
 

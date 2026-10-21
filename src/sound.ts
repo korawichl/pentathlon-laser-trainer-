@@ -1,9 +1,14 @@
+import { FEMALE_AH_BASE64 } from './femaleAudioData';
+
 // High-Precision Web Audio Synthesizer for UIPM Ecoaims Target & Mechanical Pistol Trigger
 class SoundFX {
   private ctx: AudioContext | null = null;
   public muted: boolean = false;
+  private femaleAudioBuffer: AudioBuffer | null = null;
+  private femaleAudioEl: HTMLAudioElement | null = null;
+  private isDecodingAudio = false;
 
-  private init() {
+  public init() {
     if (this.muted) return;
     if (!this.ctx) {
       const AudioCtx =
@@ -13,6 +18,43 @@ class SoundFX {
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
+    }
+    this.ensureFemaleAudioPreloaded();
+  }
+
+  public ensureFemaleAudioPreloaded() {
+    if (this.femaleAudioBuffer || this.isDecodingAudio) return;
+    if (this.ctx && typeof fetch !== 'undefined') {
+      this.isDecodingAudio = true;
+      fetch(FEMALE_AH_BASE64)
+        .then(r => r.arrayBuffer())
+        .then(buf => {
+          if (this.ctx) {
+            return this.ctx.decodeAudioData(buf);
+          }
+          return null;
+        })
+        .then(decoded => {
+          if (decoded) {
+            this.femaleAudioBuffer = decoded;
+          }
+        })
+        .catch(err => {
+          console.warn('Female audio buffer decode error:', err);
+        })
+        .finally(() => {
+          this.isDecodingAudio = false;
+        });
+    }
+
+    if (!this.femaleAudioEl && typeof Audio !== 'undefined') {
+      try {
+        this.femaleAudioEl = new Audio(FEMALE_AH_BASE64);
+        this.femaleAudioEl.preload = 'auto';
+        this.femaleAudioEl.volume = 1.0;
+      } catch (e) {
+        console.warn('Could not initialize female audio element:', e);
+      }
     }
   }
 
@@ -237,82 +279,46 @@ class SoundFX {
   }
 
   /**
-   * Short Female Vocal "Ah!" Breath Release on Shot Break
-   * (Synthesizes realistic female vocal formant frequencies: F0 ~280Hz -> 210Hz, F1 ~850Hz, F2 ~1350Hz)
+   * Real Female Vocal "Ah!" Breath Release on Shot Break
+   * (Directly uses uploaded Epidemic Sound female breath audio with Web Audio & HTMLAudio fallback)
    */
   playFemaleVoiceAh() {
     this.init();
-    if (!this.ctx || this.muted) return;
-    const now = this.ctx.currentTime;
-    const dur = 0.22;
+    if (this.muted) return;
 
-    // 1. Glottal Source (Voice fundamental pitch dropping from 290Hz to 215Hz)
-    const glottal = this.ctx.createOscillator();
-    glottal.type = 'sawtooth';
-    glottal.frequency.setValueAtTime(295, now);
-    glottal.frequency.exponentialRampToValueAtTime(215, now + dur);
-
-    // Vocal tract Formant 1 (~850 Hz - Open vowel 'ah')
-    const f1 = this.ctx.createBiquadFilter();
-    f1.type = 'bandpass';
-    f1.frequency.setValueAtTime(850, now);
-    f1.Q.setValueAtTime(4.5, now);
-
-    // Vocal tract Formant 2 (~1350 Hz)
-    const f2 = this.ctx.createBiquadFilter();
-    f2.type = 'bandpass';
-    f2.frequency.setValueAtTime(1350, now);
-    f2.Q.setValueAtTime(5.0, now);
-
-    // Vocal tract Formant 3 (~2800 Hz)
-    const f3 = this.ctx.createBiquadFilter();
-    f3.type = 'bandpass';
-    f3.frequency.setValueAtTime(2800, now);
-    f3.Q.setValueAtTime(3.5, now);
-
-    // Vocal Gain Envelope
-    const vocalGain = this.ctx.createGain();
-    vocalGain.gain.setValueAtTime(0.001, now);
-    vocalGain.gain.linearRampToValueAtTime(0.38, now + 0.035); // Sharp vocal onset
-    vocalGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
-
-    // 2. Breath Aspiration Noise (Soft exhale burst)
-    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const output = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1;
+    // 1. Try AudioBufferSourceNode for pristine low-latency Web Audio playback
+    if (this.ctx && this.femaleAudioBuffer) {
+      try {
+        const source = this.ctx.createBufferSource();
+        const gainNode = this.ctx.createGain();
+        gainNode.gain.setValueAtTime(1.0, this.ctx.currentTime);
+        source.buffer = this.femaleAudioBuffer;
+        source.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+        source.start(0);
+        return;
+      } catch (err) {
+        console.warn('AudioBufferSource playback error:', err);
+      }
     }
-    const whiteNoise = this.ctx.createBufferSource();
-    whiteNoise.buffer = noiseBuffer;
 
-    const noiseFilter = this.ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(1600, now);
-    noiseFilter.Q.setValueAtTime(1.8, now);
-
-    const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.001, now);
-    noiseGain.gain.linearRampToValueAtTime(0.18, now + 0.04);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
-
-    // Routing
-    glottal.connect(f1);
-    glottal.connect(f2);
-    glottal.connect(f3);
-    f1.connect(vocalGain);
-    f2.connect(vocalGain);
-    f3.connect(vocalGain);
-    vocalGain.connect(this.ctx.destination);
-
-    whiteNoise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(this.ctx.destination);
-
-    glottal.start(now);
-    glottal.stop(now + dur);
-    whiteNoise.start(now);
-    whiteNoise.stop(now + dur);
+    // 2. Fallback to HTMLAudioElement (works even before AudioContext decodes)
+    try {
+      if (!this.femaleAudioEl && typeof Audio !== 'undefined') {
+        this.femaleAudioEl = new Audio(FEMALE_AH_BASE64);
+        this.femaleAudioEl.preload = 'auto';
+      }
+      if (this.femaleAudioEl) {
+        this.femaleAudioEl.currentTime = 0;
+        this.femaleAudioEl.volume = 1.0;
+        const playPromise = this.femaleAudioEl.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('HTMLAudioElement play fallback failed:', e);
+    }
   }
 }
 
