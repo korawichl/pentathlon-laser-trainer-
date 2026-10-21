@@ -435,34 +435,42 @@ html, body {
 }
 
 /* ==========================================================================
-   VIEW 2: SHOOTING RANGE HUD
+   VIEW 2: SHOOTING RANGE HUD (FIXED SCREEN, NO OVERFLOW SCROLL)
    ========================================================================== */
 #view-range {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: #090d16;
   padding: 0;
   display: none;
-  flex-direction: column;
-  justify-content: space-between;
 }
 
 #view-range.active {
-  display: flex;
+  display: block;
 }
 
 .range-hud-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(15, 23, 42, 0.88);
-  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  z-index: 20;
 }
 
 .btn-range-back {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.08);
@@ -553,25 +561,31 @@ html, body {
 }
 
 .btn-hud-recenter {
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   cursor: pointer;
 }
 
 /* Subbar */
 .range-hud-subbar {
+  position: absolute;
+  top: 56px;
+  left: 0;
+  right: 0;
+  z-index: 25;
   display: flex;
   align-items: center;
   justify-content: space-around;
   padding: 5px 12px;
-  background: rgba(15, 23, 42, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: 10px;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
   color: #94a3b8;
   gap: 6px;
 }
@@ -588,7 +602,7 @@ html, body {
 
 .hud-alert-bubble {
   position: absolute;
-  top: 80px;
+  top: 96px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(239, 68, 68, 0.95);
@@ -598,7 +612,7 @@ html, body {
   padding: 5px 14px;
   border-radius: 999px;
   display: none;
-  z-index: 30;
+  z-index: 35;
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
@@ -607,10 +621,11 @@ html, body {
 }
 
 .canvas-viewport-container {
-  flex: 1;
-  position: relative;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 1;
   overflow: hidden;
 }
 
@@ -621,89 +636,96 @@ html, body {
 }
 
 /* ==========================================================================
-   RANGE BOTTOM CONTROLS (Cock Lever + Breath Hold + Fire)
+   RANGE BOTTOM CONTROLS (ALWAYS VISIBLE FLOATING BUTTONS)
    ========================================================================== */
 .range-hud-bottombar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
   display: grid;
   grid-template-columns: 1fr 1fr 1.3fr;
-  padding: 10px 14px 16px 14px;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px 14px max(20px, env(safe-area-inset-bottom)) 14px;
+  background: linear-gradient(180deg, rgba(9, 13, 22, 0) 0%, rgba(9, 13, 22, 0.85) 30%, rgba(9, 13, 22, 0.98) 100%);
   gap: 10px;
+  pointer-events: auto;
 }
 
 /* Breath Hold Button */
 .btn-hud-breath {
-  border: 1.5px solid rgba(6, 182, 212, 0.5);
-  background: rgba(6, 182, 212, 0.1);
-  color: var(--accent-cyan);
-  padding: 12px 10px;
+  border: 2px solid rgba(6, 182, 212, 0.7);
+  background: rgba(6, 182, 212, 0.18);
+  color: #22d3ee;
+  padding: 14px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 900;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.25);
+  transition: all 0.12s ease;
 }
 
 .btn-hud-breath small {
-  font-size: 9px;
-  font-weight: 600;
-  opacity: 0.85;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.9;
+  margin-top: 2px;
 }
 
-.btn-hud-breath.holding, .btn-hud-breath.active {
+.btn-hud-breath.active {
   background: #06b6d4;
-  color: #0f172a;
-  border-color: #22d3ee;
-  box-shadow: 0 0 16px rgba(6, 182, 212, 0.5);
-  transform: scale(0.98);
+  color: #042f2e;
+  border-color: #ffffff;
+  box-shadow: 0 0 20px #06b6d4;
+  transform: scale(0.97);
 }
 
 /* Cocking Lever Button (คันสับไก) */
 .btn-hud-cock {
-  border: 1.5px solid rgba(250, 204, 21, 0.5);
-  background: rgba(250, 204, 21, 0.12);
-  color: #facc15;
-  padding: 12px 10px;
+  border: 2px solid rgba(250, 204, 21, 0.7);
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde047;
+  padding: 14px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 900;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  box-shadow: 0 4px 14px rgba(250, 204, 21, 0.25);
+  transition: all 0.12s ease;
 }
 
 .btn-hud-cock.needs-cock {
   background: var(--accent-yellow);
   color: #0f172a;
   border-color: #ffffff;
-  box-shadow: 0 0 16px rgba(250, 204, 21, 0.5);
+  box-shadow: 0 0 22px rgba(250, 204, 21, 0.8);
   animation: pulse-cock 1s infinite;
 }
 
 @keyframes pulse-cock {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
+  50% { transform: scale(1.04); }
 }
 
 /* Fire Button */
 .btn-hud-fire {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: #ffffff;
-  border: none;
-  padding: 14px 16px;
+  border: 2px solid #f87171;
+  padding: 14px 14px;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 900;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
   letter-spacing: 0.3px;
   transition: all 0.1s ease;
 }
@@ -713,10 +735,10 @@ html, body {
 }
 
 .btn-hud-fire.uncocked {
-  background: #334155;
-  color: #94a3b8;
+  background: #1e293b;
+  color: #cbd5e1;
   box-shadow: none;
-  border: 1px dashed #475569;
+  border: 1.5px dashed #64748b;
 }
 
 /* ==========================================================================

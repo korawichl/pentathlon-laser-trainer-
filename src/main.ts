@@ -459,6 +459,7 @@ class PentaArenaController {
     const breathBtn = document.getElementById('btn-breath-hold');
     breathBtn?.addEventListener('click', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       this.toggleBreathHold();
     });
 
@@ -466,6 +467,7 @@ class PentaArenaController {
     const cockBtn = document.getElementById('btn-cock-lever');
     cockBtn?.addEventListener('click', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       this.cockPistol();
     });
 
@@ -473,6 +475,7 @@ class PentaArenaController {
     const fireBtn = document.getElementById('btn-fire');
     fireBtn?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (!this.isPistolCocked) {
         // If not cocked, tapping fire button immediately cocks the lever for convenience!
         this.cockPistol();
@@ -483,6 +486,7 @@ class PentaArenaController {
 
     fireBtn?.addEventListener('pointerup', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (this.isPistolCocked) {
         this.onTriggerRelease();
       }
