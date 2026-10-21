@@ -3,32 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>PENTA ARENA — 10m Laser Pistol & SCATT Training System</title>
-  <script type="module" crossorigin src="./assets/index-DOw3nLCU.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-D-0hk69G.css">
+  <title>PENTA ARENA — 10m Laser Pistol Trainer</title>
+  <script type="module" crossorigin src="./assets/index-0pwH1ZK_.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B-WD0Lfx.css">
 </head>
 <body>
   <div id="app">
     <!-- ===================================================================== -->
-    <!-- VIEW 1: MODERN ESPORTS DASHBOARD & DRILL SELECTOR                      -->
+    <!-- VIEW 1: CLEAN MODERN ESPORTS LOBBY                                    -->
     <!-- ===================================================================== -->
     <div id="view-setup" class="screen active">
-      <!-- Top Navigation Bar -->
+      <!-- Clean Top Navbar -->
       <header class="main-navbar">
         <div class="nav-brand">
           <div class="brand-badge">🎯</div>
           <div class="brand-text">
             <span class="brand-title">PENTA<strong>ARENA</strong></span>
-            <span class="brand-sub">UIPM 10M LASER PISTOL &amp; SCATT</span>
-          </div>
-        </div>
-
-        <div class="nav-search-bar">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="drill-search-input" placeholder="ค้นหาโหมดฝึกซ้อม หรือสถิติ SCATT..." readonly>
-          <div class="nav-pills">
-            <button class="nav-pill active">โหมดฝึกซ้อม</button>
-            <button class="nav-pill" id="btn-quick-scatt-stat">สถิติ SCATT</button>
+            <span class="brand-sub">10M LASER PISTOL TRAINER</span>
           </div>
         </div>
 
@@ -42,193 +33,113 @@
           </button>
           <div class="athlete-profile-chip">
             <div class="avatar-circle">🏆</div>
-            <div class="profile-info">
-              <span class="profile-name">Pentathlete</span>
-              <span class="profile-rank">UIPM Pro Level 18</span>
-            </div>
+            <span class="profile-name">Athlete Pro</span>
           </div>
         </div>
       </header>
 
-      <!-- Main Dashboard Body Grid -->
+      <!-- Dashboard Body -->
       <div class="dashboard-body">
-        <!-- Hero Banner: Modern Blue Bubble Card (matching the image) -->
+        <!-- Sleek Hero Card -->
         <section class="hero-game-banner">
           <div class="hero-content">
             <div class="hero-tag">
-              <span class="tag-live">● UIPM 1:1 REALISTIC SIM</span>
-              <span class="tag-specs">ISSF 59.5mm Hit Zone • 320mm Sight Radius</span>
+              <span class="tag-live">● UIPM 10M ECOAIMS SIM</span>
+              <span class="tag-specs">59.5mm Hit Zone • 1:1 Scale</span>
             </div>
-            <h1 class="hero-title">Modern Pentathlon<br><span>10m Laser Pistol Trainer</span></h1>
+            <h1 class="hero-title">Laser Pistol Training</h1>
             <p class="hero-desc">
-              ระบบจำลองการยิงปืนสั้นเลเซอร์ระดับแข่งขันจริง ควบคุมด้วยไจโรสโคปมือถือ
-              วัดความนิ่งปากกระบอก SCATT (mm/s), คลื่นชีพจรกระตุกข้อมือ และอาการกระตุกไก
+              จำลองการยิงปืนสั้นเลเซอร์ระดับแข่งขันจริง ควบคุมด้วยไจโรสโคปมือถือ
+              พร้อมระบบสับไกปืนทีละนัด และระบบกลั้นหายใจเพื่อเป้านิ่งขึ้น 5%
             </p>
             <div class="hero-buttons">
               <button id="btn-enter-range" class="btn-hero-primary">
-                🚀 เข้าสู่ช่องยิงทันที (ENTER RANGE)
+                🚀 เข้าสู่ช่องยิง (START DRILL)
               </button>
               <button id="btn-connect-ble" class="btn-hero-secondary">
-                🔗 เชื่อมต่อสายคาดอก BLE Heart Rate
+                🔗 ต่อสายคาดอก BLE
               </button>
-            </div>
-          </div>
-          <div class="hero-visual">
-            <div class="target-mockup-badge">
-              <div class="target-ring-visual">
-                <div class="ring-circle outer"></div>
-                <div class="ring-circle black">
-                  <div class="inner-10-dot"></div>
-                </div>
-              </div>
-              <div class="mockup-label">ECOAIMS LT600 BOX</div>
             </div>
           </div>
         </section>
 
-        <!-- Section: Top Training Drills (Cards Grid like the image) -->
+        <!-- Drill Selection Cards -->
         <section class="drills-section">
           <div class="section-header">
-            <div>
-              <h2 class="section-title">โหมดการฝึกซ้อม (Select Training Drill)</h2>
-              <p class="section-subtitle">เลือกรูปแบบการซ้อมยิงปืนสั้นเลเซอร์ตามโปรโตคอลของโค้ช</p>
-            </div>
-            <div class="section-badge" id="selected-drill-badge">โหมดปัจจุบัน: 🏆 5-Hit Series</div>
+            <h2 class="section-title">เลือกโหมดการฝึกซ้อม</h2>
+            <div class="section-badge" id="selected-drill-badge">🏆 5-Hit Series</div>
           </div>
 
           <div class="drills-grid">
-            <!-- Drill Card 1 -->
             <div class="drill-card active" data-drill="UIPM_5HIT_SERIES">
               <div class="drill-badge-top">
                 <span class="badge-icon">🏆</span>
-                <span class="badge-round">5 HITS / 50s</span>
+                <span class="badge-round">50s LIMIT</span>
               </div>
-              <h3 class="drill-card-title">UIPM Competition Series</h3>
-              <p class="drill-card-desc">ยิงเข้าเป้า 5 นัด ภายในเวลาจำกัด 50 วินาที พร้อมวัดความเร็วการยิงนัดแรก</p>
-              <div class="drill-card-footer">
-                <div class="drill-time-stat">⏱️ Max 50.0s</div>
-                <button class="btn-drill-select">เลือกโหมดนี้ ✓</button>
-              </div>
+              <h3 class="drill-card-title">UIPM Competition</h3>
+              <p class="drill-card-desc">ยิงเข้าเป้า 5 นัดใน 50 วินาทีตามกติกาจริง สับไกปืนทีละนัด</p>
             </div>
 
-            <!-- Drill Card 2 -->
             <div class="drill-card" data-drill="FIRST_SHOT_DRILL">
               <div class="drill-badge-top">
                 <span class="badge-icon">⚡</span>
                 <span class="badge-round">5 REPEATS</span>
               </div>
-              <h3 class="drill-card-title">First-Shot Table Raise</h3>
-              <p class="drill-card-desc">ฝึกยกปืนขึ้นจากโต๊ะจับศูนย์หน้าแล้วลั่นไกนัดแรกให้เร็วและแม่นยำที่สุด</p>
-              <div class="drill-card-footer">
-                <div class="drill-time-stat">⏱️ Target &lt; 2.5s</div>
-                <button class="btn-drill-select">เลือกโหมดนี้</button>
-              </div>
+              <h3 class="drill-card-title">First-Shot Speed</h3>
+              <p class="drill-card-desc">ฝึกยกปืนขึ้นจับศูนย์แล้วลั่นไกนัดแรกให้เร็วกว่า 2.5 วินาที</p>
             </div>
 
-            <!-- Drill Card 3 -->
             <div class="drill-card" data-drill="SCATT_10SHOT_DIAG">
               <div class="drill-badge-top">
                 <span class="badge-icon">🔬</span>
                 <span class="badge-round">10 SHOTS</span>
               </div>
-              <h3 class="drill-card-title">SCATT 10-Shot Precision</h3>
-              <p class="drill-card-desc">วิเคราะห์เส้นทางศูนย์เล็ง (Trace Speed L) ละเอียด 10 นัด และคะแนน 10.9</p>
-              <div class="drill-card-footer">
-                <div class="drill-time-stat">📊 Full SCATT</div>
-                <button class="btn-drill-select">เลือกโหมดนี้</button>
-              </div>
+              <h3 class="drill-card-title">SCATT Precision</h3>
+              <p class="drill-card-desc">วิเคราะห์เส้นทางศูนย์เล็ง (Trace Speed L) ละเอียด 10 นัด</p>
             </div>
 
-            <!-- Drill Card 4 -->
             <div class="drill-card" data-drill="CADENCE_METRONOME">
               <div class="drill-badge-top">
                 <span class="badge-icon">⏱️</span>
-                <span class="badge-round">RHYTHM</span>
+                <span class="badge-round">2.1s PACER</span>
               </div>
-              <h3 class="drill-card-title">Cadence Metronome Pacer</h3>
-              <p class="drill-card-desc">ฝึกจังหวะลั่นไกตามเสียงเคาะสัญญาณเมโทรนอม 2.1 วินาที/นัด</p>
-              <div class="drill-card-footer">
-                <div class="drill-time-stat">🎵 2.1s / Shot</div>
-                <button class="btn-drill-select">เลือกโหมดนี้</button>
-              </div>
+              <h3 class="drill-card-title">Cadence Metronome</h3>
+              <p class="drill-card-desc">ฝึกจังหวะสับไกและลั่นไกตามเสียงเคาะสัญญาณสม่ำเสมอ</p>
             </div>
           </div>
         </section>
 
-        <!-- Quick Settings Cards Grid (Interactive visual cards) -->
-        <section class="settings-strip-grid">
-          <!-- Card: Trigger Action -->
-          <div class="setting-card">
-            <div class="card-icon-head">
-              <span class="card-icon">⚡</span>
-              <div>
-                <h4>ระบบไกปืน (Trigger Mechanics)</h4>
-                <p>เลือกพฤติกรรมของไกปืนแข่งขัน</p>
+        <!-- Clean Compact Settings -->
+        <section class="clean-settings-card">
+          <h3 class="settings-card-title">⚙️ ตั้งค่าสภาวะการยิง</h3>
+          <div class="settings-rows">
+            <!-- Row 1: Trigger -->
+            <div class="setting-row">
+              <span class="setting-label">ระบบไก:</span>
+              <div class="setting-pills-row" id="trigger-mode-pills">
+                <button class="pill-btn active" data-val="DIRECT_COMPETITION">แตะยิงทันที (Direct)</button>
+                <button class="pill-btn" data-val="TWO_STAGE_RELEASE">ไก 2 จังหวะ (Two-Stage)</button>
               </div>
             </div>
-            <div class="setting-options-pills" id="trigger-mode-pills">
-              <button class="opt-pill active" data-val="DIRECT_COMPETITION">
-                <strong>Direct Single-Stage</strong>
-                <span>แตะลั่นไกทันที (แนะนำ)</span>
-              </button>
-              <button class="opt-pill" data-val="TWO_STAGE_RELEASE">
-                <strong>Two-Stage Sear</strong>
-                <span>กดค้างเข้ากำแพงไก ➔ ปล่อยลั่นไก</span>
-              </button>
-              <button class="opt-pill" data-val="HOLD_SQUEEZE_LOCK">
-                <strong>Hold &amp; Squeeze</strong>
-                <span>ต้องเลี้ยงศูนย์ในวงดำจึงปลดล็อก</span>
-              </button>
-            </div>
-          </div>
 
-          <!-- Card: Heart Rate & Physical Strain -->
-          <div class="setting-card">
-            <div class="card-icon-head">
-              <span class="card-icon">💓</span>
-              <div>
-                <h4>สภาวะชีพจรขณะยิง (Heart Rate Load)</h4>
-                <p>จำลองแรงเต้นของชีพจรและอาการหอบหายใจ</p>
+            <!-- Row 2: Heart Rate -->
+            <div class="setting-row">
+              <span class="setting-label">ชีพจร/ความเหนื่อย:</span>
+              <div class="setting-pills-row" id="hr-mode-pills">
+                <button class="pill-btn" data-val="68">68 นิ่ง</button>
+                <button class="pill-btn" data-val="148">148 วอร์มอัป</button>
+                <button class="pill-btn active" data-val="174">174 แข่งจริง</button>
+                <button class="pill-btn" data-val="188">188 เหนื่อยสุด</button>
               </div>
             </div>
-            <div class="setting-options-pills" id="hr-mode-pills">
-              <button class="opt-pill" data-val="68">
-                <strong>68 BPM</strong>
-                <span>พักผ่อน / Dry-Fire</span>
-              </button>
-              <button class="opt-pill" data-val="148">
-                <strong>148 BPM</strong>
-                <span>Warmup / Threshold</span>
-              </button>
-              <button class="opt-pill active" data-val="174">
-                <strong>174 BPM</strong>
-                <span>UIPM Race Pace (แข่งจริง)</span>
-              </button>
-              <button class="opt-pill" data-val="188">
-                <strong>188 BPM</strong>
-                <span>Final Lap (เหนื่อยสูงสุด)</span>
-              </button>
-            </div>
-          </div>
 
-          <!-- Card: Sight Zero & Cant -->
-          <div class="setting-card">
-            <div class="card-icon-head">
-              <span class="card-icon">🎯</span>
-              <div>
-                <h4>ภาพการเล็ง (Sight Picture Zero)</h4>
-                <p>เลือกตำแหน่งการวางศูนย์หน้าบนเป้า</p>
+            <!-- Row 3: Sight Zero -->
+            <div class="setting-row">
+              <span class="setting-label">ภาพการเล็ง:</span>
+              <div class="setting-pills-row" id="sight-mode-pills">
+                <button class="pill-btn active" data-val="CENTER_HOLD">จี้กลางวงดำ (Center)</button>
+                <button class="pill-btn" data-val="SUB_SIX_HOLD">นั่งแท่น 6 นาฬิกา (Sub-6)</button>
               </div>
-            </div>
-            <div class="setting-options-pills" id="sight-mode-pills">
-              <button class="opt-pill active" data-val="CENTER_HOLD">
-                <strong>Center Hold</strong>
-                <span>ยอดศูนย์หน้าจี้กลางวงดำ 10.9</span>
-              </button>
-              <button class="opt-pill" data-val="SUB_SIX_HOLD">
-                <strong>Sub-6 O'Clock</strong>
-                <span>เล็งนั่งแท่นขอบล่างวงดำ 6 นาฬิกา</span>
-              </button>
             </div>
           </div>
         </section>
@@ -236,23 +147,19 @@
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 2: 10m LASER PISTOL RANGE STATION (CLEAN MODERN SHOOTING HUD)    -->
+    <!-- VIEW 2: CLEAN ERGONOMIC SHOOTING RANGE                                -->
     <!-- ===================================================================== -->
     <div id="view-range" class="screen">
-      <!-- Modern Range Header -->
+      <!-- Clean Top Bar -->
       <div class="range-hud-topbar">
-        <!-- Back to lobby button -->
-        <button id="btn-range-exit" class="btn-range-back" title="กลับหน้าหลัก">
-          ✕
-        </button>
+        <button id="btn-range-exit" class="btn-range-back" title="กลับหน้าหลัก">✕</button>
 
-        <!-- Countdown Station Timer -->
+        <!-- Countdown Timer -->
         <div class="hud-timer-card">
-          <span class="hud-timer-sub">STATION TIME</span>
           <div class="hud-timer-digits" id="range-countdown-val">50.0<span>s</span></div>
         </div>
 
-        <!-- 5 Official UIPM Ecoaims LED Hit Lamps -->
+        <!-- 5 Ecoaims Lamps -->
         <div class="hud-ecoaims-box">
           <div class="ecoaims-lamps">
             <div class="lamp-circle" id="lamp-dot-1"></div>
@@ -261,204 +168,138 @@
             <div class="lamp-circle" id="lamp-dot-4"></div>
             <div class="lamp-circle" id="lamp-dot-5"></div>
           </div>
-          <div id="hud-last-shot-readout" class="ecoaims-readout-pill">
-            READY — AIM &amp; TAP SCREEN
-          </div>
+          <div id="hud-last-shot-readout" class="ecoaims-readout-pill">READY — ARMED</div>
         </div>
 
-        <!-- Biometrics & SCATT Telemetry Pill -->
-        <div class="hud-bio-card">
+        <!-- Biometrics & Recenter -->
+        <div class="hud-right-group">
           <div class="bio-heart-rate">
             <span id="hud-pulse-dot" class="heart-pulse-icon">♥</span>
             <span id="hud-bpm-val" class="bpm-num">174</span>
-            <span class="bpm-unit">BPM</span>
           </div>
-          <div class="scatt-speed-chip">
-            <span>SCATT SPEED:</span>
-            <strong id="hud-trace-speed">0</strong> mm/s
-          </div>
+          <button id="btn-recenter-aim" class="btn-hud-recenter">🎯 ตั้งศูนย์</button>
         </div>
       </div>
 
-      <!-- Quick Telemetry Sub-Strip (Cant Angle, O2, Shoulder Fatigue) -->
+      <!-- Compact Subbar: Cant Angle & Breath/Speed -->
       <div class="range-hud-subbar">
-        <div class="subbar-item">
-          <span>📐 CANT ANGLE:</span>
+        <div class="subbar-pill">
+          <span>📐 CANT:</span>
           <strong id="hud-cant-deg">0.0°</strong>
         </div>
-        <div class="subbar-item">
-          <span>🫁 O₂ WINDOW:</span>
-          <div class="hud-mini-progress">
-            <div id="bar-o2" class="hud-mini-fill o2-bar" style="width: 100%;"></div>
-          </div>
+        <div class="subbar-pill">
+          <span>SCATT:</span>
+          <strong id="hud-trace-speed">0</strong> mm/s
         </div>
-        <div class="subbar-item">
-          <span>💪 DELTOID FATIGUE:</span>
-          <div class="hud-mini-progress">
-            <div id="bar-deltoid" class="hud-mini-fill deltoid-bar" style="width: 0%;"></div>
-          </div>
+        <div class="subbar-pill" id="hud-breath-status-pill">
+          <span>🫁 กลั้นหายใจ:</span>
+          <strong id="breath-status-text">OFF</strong>
         </div>
-        <button id="btn-recenter-aim" class="btn-hud-recenter">
-          🎯 ตั้งศูนย์เล็งใหม่ (Recenter Aim)
-        </button>
+        <div class="subbar-pill" id="hud-cock-status-pill">
+          <span>ไกปืน:</span>
+          <strong id="cock-status-text" style="color:#22c55e;">พร้อมยิง</strong>
+        </div>
       </div>
 
-      <!-- Jerk / Flinch Alert Popup -->
-      <div id="range-jerk-alert" class="hud-alert-bubble">
-        ⚠️ TRIGGER FLINCH DETECTED
-      </div>
+      <!-- Flinch Alert Popup -->
+      <div id="range-jerk-alert" class="hud-alert-bubble">⚠️ TRIGGER FLINCH DETECTED</div>
 
-      <!-- Interactive 10m Target Canvas -->
+      <!-- Canvas Viewport -->
       <div class="canvas-viewport-container">
         <canvas id="range-canvas"></canvas>
       </div>
 
-      <!-- Ergonomic Touch Bottom Bar -->
+      <!-- Ergonomic Bottom Controls -->
       <div class="range-hud-bottombar">
-        <!-- Left: Breath Hold & Zero Table -->
-        <div class="hud-bottom-left">
-          <button id="btn-table-touch" class="btn-hud-secondary">
-            ⬇️ แตะโต๊ะ / Zero (R)
-          </button>
-          <button id="btn-breath-hold" class="btn-hud-breath">
-            🫁 กลั้นหายใจ (HOLD BREATH)
-          </button>
-        </div>
+        <!-- Left: Breath Hold (+5% steadier) -->
+        <button id="btn-breath-hold" class="btn-hud-breath">
+          🫁 กลั้นหายใจ <small>(+5% นิ่ง)</small>
+        </button>
 
-        <!-- Center: Status Guidance Text -->
-        <div class="hud-bottom-center">
-          <div id="stability-label" class="hud-guidance-text">
-            แตะที่เป้าหรือปุ่มขวาเพื่อยิง | หมุนมือถือเพื่อเล็ง
-          </div>
-        </div>
+        <!-- Middle: Cocking Lever (คันสับไก) -->
+        <button id="btn-cock-lever" class="btn-hud-cock">
+          🔄 สับไกปืน (COCK)
+        </button>
 
-        <!-- Right: Primary Trigger Button (Large, prominent) -->
-        <div class="hud-bottom-right">
-          <button id="btn-fire" class="btn-hud-fire">
-            🔥 PULL SEAR (เหนี่ยวไก)
-          </button>
-        </div>
+        <!-- Right: Pull Sear (เหนี่ยวไก) -->
+        <button id="btn-fire" class="btn-hud-fire ready">
+          🔥 เหนี่ยวไก (FIRE)
+        </button>
       </div>
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 3: POST-MATCH SCATT BIOMECHANICS & ANALYTICS REPORT              -->
+    <!-- VIEW 3: POST-MATCH SCATT ANALYTICS REPORT                             -->
     <!-- ===================================================================== -->
     <div id="view-result" class="screen">
       <header class="main-navbar">
         <div class="nav-brand">
           <div class="brand-badge">📊</div>
           <div class="brand-text">
-            <span class="brand-title">SCATT<strong>TELEMETRY</strong></span>
-            <span class="brand-sub">10m OPTICAL TRAJECTORY REPORT</span>
+            <span class="brand-title">SCATT<strong>REPORT</strong></span>
+            <span class="brand-sub">BIOMECHANICAL TELEMETRY</span>
           </div>
         </div>
         <div class="nav-actions">
-          <button id="btn-export-series-csv" class="btn-action-outline">
-            📥 ดาวน์โหลด CSV
-          </button>
-          <button id="btn-back-setup" class="btn-action-outline">
-            ⚙️ เมนูหลัก
-          </button>
+          <button id="btn-export-series-csv" class="btn-action-outline">📥 CSV</button>
+          <button id="btn-back-setup" class="btn-action-outline">⚙️ เมนูหลัก</button>
         </div>
       </header>
 
       <div class="dashboard-body">
-        <!-- Result Summary Hero Banner -->
         <section class="result-summary-banner">
-          <div class="result-banner-left">
-            <span class="result-banner-tag">SERIES PERFORMANCE REPORT</span>
-            <h1 id="result-status-title" class="result-banner-title">
-              ✅ SERIES COMPLETE — 14.82s
-            </h1>
-            <p id="result-banner-subtitle" class="result-banner-desc">
-              บันทึกและวิเคราะห์ข้อมูลชีวกลศาสตร์ตามมาตรฐาน UIPM และ SCATT Optical Sensor
-            </p>
+          <div>
+            <span class="result-banner-tag">SERIES RESULT</span>
+            <h1 id="result-status-title" class="result-banner-title">✅ SERIES COMPLETE</h1>
+            <p id="result-banner-subtitle" class="result-banner-desc">วิเคราะห์การยิงและวิถีศูนย์เล็ง SCATT</p>
           </div>
-          <div class="result-banner-right">
-            <button id="btn-retry-range" class="btn-hero-primary" style="padding: 14px 28px;">
-              🔄 ซ้อมชุดต่อไปทันที (START NEXT SERIES)
-            </button>
-          </div>
+          <button id="btn-retry-range" class="btn-hero-primary">🔄 ซ้อมชุดต่อไป</button>
         </section>
 
-        <!-- Two Columns Layout: Left = SCATT Canvas Replay, Right = Key Telemetry -->
         <div class="result-cards-grid">
-          <!-- Left: SCATT Optical Trace Replay Card -->
           <div class="analytics-card">
             <div class="card-header-row">
-              <div class="card-title-group">
-                <h3>🔬 SCATT Optical Trace Replay</h3>
-                <p>แตะเลือกนัดเพื่อดูวิถีการเดินศูนย์เล็ง 1.0s ก่อนลั่นไก</p>
-              </div>
+              <h3>🔬 SCATT Optical Trace Replay</h3>
               <div class="trace-legend">
-                <span class="leg-dot green">● -1.0s Approach</span>
-                <span class="leg-dot yellow">● -0.2s Hold</span>
-                <span class="leg-dot blue">● +0.16s Follow</span>
+                <span class="leg-dot green">● Approach</span>
+                <span class="leg-dot yellow">● Hold</span>
+                <span class="leg-dot blue">● Follow</span>
               </div>
             </div>
-
             <div class="scatt-canvas-container">
-              <canvas id="scatt-replay-canvas" width="340" height="340"></canvas>
+              <canvas id="scatt-replay-canvas" width="320" height="320"></canvas>
             </div>
-
-            <!-- Shot Selector Pills -->
-            <div id="scatt-shot-pills" class="shot-pills-row">
-              <!-- Dynamically populated -->
-            </div>
-            <div id="scatt-selected-shot-detail" class="shot-detail-box">
-              เลือกนัดยิงด้านบนเพื่อดูวิเคราะห์ความเร็วปากกระบอก (mm/s) และทิศทางการกระตุกไก
-            </div>
+            <div id="scatt-shot-pills" class="shot-pills-row"></div>
+            <div id="scatt-selected-shot-detail" class="shot-detail-box">แตะเลือกนัดด้านบน</div>
           </div>
 
-          <!-- Right: Telemetry Metrics & Shot Table -->
           <div class="analytics-card">
             <div class="card-header-row">
-              <div class="card-title-group">
-                <h3>📊 สถิติความแม่นยำ (Series Metrics)</h3>
-                <p>คำนวณจากคะแนนทศนิยม ISSF 0.0–10.9 และพารามิเตอร์ SCATT</p>
-              </div>
+              <h3>📊 สถิติความแม่นยำ</h3>
             </div>
-
-            <table class="modern-table" id="table-result-metrics">
-              <!-- Dynamically populated -->
-            </table>
-
-            <h4 style="margin: 18px 0 8px 0; font-size: 14px; color: #0f172a;">
-              📋 ตารางแจกแจงทีละนัด (Shot Breakdown)
-            </h4>
+            <table class="modern-table" id="table-result-metrics"></table>
+            <h4 style="margin: 14px 0 6px 0; font-size: 13px;">📋 แจกแจงทีละนัด</h4>
             <div class="table-scroll-wrap">
               <table class="modern-table shot-table">
                 <thead>
                   <tr>
                     <th>#</th>
                     <th>คะแนน</th>
-                    <th>เวลา (Split)</th>
+                    <th>เวลา</th>
                     <th>SCATT L</th>
                     <th>7-Ring%</th>
-                    <th>Pull Err</th>
-                    <th>ไกปืน</th>
+                    <th>ไก</th>
                   </tr>
                 </thead>
-                <tbody id="tbody-shots-breakdown">
-                  <!-- Dynamically populated -->
-                </tbody>
+                <tbody id="tbody-shots-breakdown"></tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <!-- Coach AI Diagnostics Card -->
-        <div class="analytics-card" style="margin-top: 16px;">
-          <div class="card-header-row">
-            <div class="card-title-group">
-              <h3>🤖 คำแนะนำจากโค้ชชีวกลศาสตร์ (Biomechanics Diagnostics)</h3>
-              <p>ตรวจจับและวิเคราะห์สาเหตุของกระสุนหลุดวงดำ</p>
-            </div>
-          </div>
-          <ul id="result-coach-tips" class="coach-tips-grid">
-            <!-- Dynamically populated -->
-          </ul>
+        <div class="analytics-card" style="margin-top: 14px;">
+          <h3 style="font-size: 14px; margin-bottom: 8px;">🤖 คำแนะนำจากโค้ช</h3>
+          <ul id="result-coach-tips" class="coach-tips-grid"></ul>
         </div>
       </div>
     </div>

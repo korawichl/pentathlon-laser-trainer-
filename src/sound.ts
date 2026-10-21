@@ -17,6 +17,41 @@ class SoundFX {
   }
 
   /**
+   * Mechanical Cocking Lever Cycle (คันง้างไก/คันสับไก - Crisp Clack-Click)
+   */
+  playCockLever() {
+    this.init();
+    if (!this.ctx || this.muted) return;
+    const now = this.ctx.currentTime;
+
+    // First click: lever pulled back
+    const osc1 = this.ctx.createOscillator();
+    const g1 = this.ctx.createGain();
+    osc1.type = 'triangle';
+    osc1.frequency.setValueAtTime(1400, now);
+    osc1.frequency.exponentialRampToValueAtTime(750, now + 0.025);
+    g1.gain.setValueAtTime(0.25, now);
+    g1.gain.exponentialRampToValueAtTime(0.005, now + 0.03);
+    osc1.connect(g1);
+    g1.connect(this.ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.032);
+
+    // Second crisp snap: sear engages into battery
+    const osc2 = this.ctx.createOscillator();
+    const g2 = this.ctx.createGain();
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(2200, now + 0.045);
+    osc2.frequency.exponentialRampToValueAtTime(800, now + 0.075);
+    g2.gain.setValueAtTime(0.28, now + 0.045);
+    g2.gain.exponentialRampToValueAtTime(0.005, now + 0.08);
+    osc2.connect(g2);
+    g2.connect(this.ctx.destination);
+    osc2.start(now + 0.045);
+    osc2.stop(now + 0.082);
+  }
+
+  /**
    * Subtle mechanical click for Stage-1 trigger take-up (taking up slack to sear wall)
    */
   playTakeUp() {
