@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>PENTA ARENA — 10m Laser Pistol Trainer</title>
-  <link rel="icon" type="image/png" href="./assets/icon-192-sDfmEcA_.png">
-  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-FR3DU9EK.png">
-  <link rel="manifest" href="./assets/manifest-CDwCFQBk.json">
+  <link rel="icon" type="image/png" href="./assets/icon-192-sDfmEcA_-sDfmEcA_.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-FR3DU9EK-FR3DU9EK.png">
+  <link rel="manifest" href="./assets/manifest-CDwCFQBk-CDwCFQBk.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PentaLaser">
-  <script type="module" crossorigin src="./assets/index-CAaqt229.js"></script>
+  <script type="module" crossorigin src="./assets/index-8A9Jq_pS.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-aLIFDOdu.css">
 </head>
 <body>
@@ -56,14 +56,11 @@
             <h1 class="hero-title">Laser Pistol Training</h1>
             <p class="hero-desc">
               จำลองการยิงปืนสั้นเลเซอร์ระดับแข่งขันจริง ควบคุมด้วยไจโรสโคปมือถือ
-              พร้อมระบบสับไกปืนทีละนัด และระบบกลั้นหายใจเพื่อเป้านิ่งขึ้น 5%
+              พร้อมระบบสับไกปืนทีละนัด และระบบกลั้นหายใจ 3 วินาทีเพื่อเป้านิ่งขึ้น 5%
             </p>
             <div class="hero-buttons">
               <button id="btn-enter-range" class="btn-hero-primary">
                 🚀 เข้าสู่ช่องยิง (START DRILL)
-              </button>
-              <button id="btn-connect-ble" class="btn-hero-secondary">
-                🔗 ต่อสายคาดอก BLE
               </button>
             </div>
           </div>
@@ -83,16 +80,16 @@
                 <span class="badge-round">50s LIMIT</span>
               </div>
               <h3 class="drill-card-title">UIPM Competition</h3>
-              <p class="drill-card-desc">ยิงเข้าเป้า 5 นัดใน 50 วินาทีตามกติกาจริง สับไกปืนทีละนัด</p>
+              <p class="drill-card-desc">ยิงเข้าเป้า 5 นัดใน 50 วินาทีตามกติกาแข่งขัน สับไกปืนทีละนัด</p>
             </div>
 
             <div class="drill-card" data-drill="FIRST_SHOT_DRILL">
               <div class="drill-badge-top">
                 <span class="badge-icon">⚡</span>
-                <span class="badge-round">5 REPEATS</span>
+                <span class="badge-round">&lt; 2.5s STRICT</span>
               </div>
               <h3 class="drill-card-title">First-Shot Speed</h3>
-              <p class="drill-card-desc">ฝึกยกปืนขึ้นจับศูนย์แล้วลั่นไกนัดแรกให้เร็วกว่า 2.5 วินาที</p>
+              <p class="drill-card-desc">จำกัดเวลา 2.50s ต่อนัด ต้องลั่นไกให้ทัน หากเกินเวลาเกมจะหยุดทันที</p>
             </div>
 
             <div class="drill-card" data-drill="SCATT_10SHOT_DIAG">
@@ -101,7 +98,7 @@
                 <span class="badge-round">10 SHOTS</span>
               </div>
               <h3 class="drill-card-title">SCATT Precision</h3>
-              <p class="drill-card-desc">วิเคราะห์เส้นทางศูนย์เล็ง (Trace Speed L) ละเอียด 10 นัด</p>
+              <p class="drill-card-desc">วิเคราะห์เจาะลึก 10 นัด: จุดกระทบ, ความเร็ว L, ทิศทางกระตุกไก</p>
             </div>
 
             <div class="drill-card" data-drill="CADENCE_METRONOME">
@@ -110,7 +107,7 @@
                 <span class="badge-round">2.1s PACER</span>
               </div>
               <h3 class="drill-card-title">Cadence Metronome</h3>
-              <p class="drill-card-desc">ฝึกจังหวะสับไกและลั่นไกตามเสียงเคาะสัญญาณสม่ำเสมอ</p>
+              <p class="drill-card-desc">เสียงเคาะจังหวะชัดเจน ฝึกจังหวะสับไกและลั่นไกให้ลงจังหวะสม่ำเสมอ</p>
             </div>
           </div>
         </section>
@@ -183,6 +180,7 @@
             <span id="hud-pulse-dot" class="heart-pulse-icon">♥</span>
             <span id="hud-bpm-val" class="bpm-num">174</span>
           </div>
+          <button id="btn-range-sound" class="btn-hud-recenter">🔊</button>
           <button id="btn-recenter-aim" class="btn-hud-recenter">🎯 ตั้งศูนย์</button>
         </div>
       </div>
@@ -194,12 +192,12 @@
           <strong id="hud-cant-deg">0.0°</strong>
         </div>
         <div class="subbar-pill">
-          <span>SCATT:</span>
+          <span>SCATT L:</span>
           <strong id="hud-trace-speed">0</strong> mm/s
         </div>
         <div class="subbar-pill" id="hud-breath-status-pill">
-          <span>🫁 กลั้นหายใจ:</span>
-          <strong id="breath-status-text">OFF</strong>
+          <span>🫁 กลั้น:</span>
+          <strong id="breath-status-text">OFF (3.0s)</strong>
         </div>
         <div class="subbar-pill" id="hud-cock-status-pill">
           <span>ไกปืน:</span>
@@ -210,6 +208,19 @@
       <!-- Flinch Alert Popup -->
       <div id="range-jerk-alert" class="hud-alert-bubble">⚠️ TRIGGER FLINCH DETECTED</div>
 
+      <!-- Mode 2 Strict Timeout Fail Modal -->
+      <div id="range-fail-modal" class="hud-modal-overlay" style="display: none;">
+        <div class="hud-modal-card">
+          <div class="modal-icon">⏱️</div>
+          <h2>เกินเวลา 2.50 วินาที!</h2>
+          <p id="fail-modal-desc">ในโหมด First-Shot Speed ต้องลั่นไกให้ทันภายใน 2.50 วินาที เกมหยุดทันที</p>
+          <div style="display: flex; gap: 10px; margin-top: 16px;">
+            <button id="btn-fail-retry" class="btn-hero-primary" style="flex: 1;">🔄 ลองใหม่อีกครั้ง</button>
+            <button id="btn-fail-lobby" class="btn-hero-secondary" style="flex: 1;">⚙️ หน้าหลัก</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Canvas Viewport -->
       <div class="canvas-viewport-container" style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;">
         <canvas id="range-canvas"></canvas>
@@ -217,9 +228,10 @@
 
       <!-- Ergonomic Bottom Controls (Fixed floating bar - guaranteed 100% visible on mobile) -->
       <div class="range-hud-bottombar" style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 999; display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; padding: 10px 12px max(18px, env(safe-area-inset-bottom)) 12px; background: rgba(9, 13, 22, 0.94); backdrop-filter: blur(12px); border-top: 1px solid rgba(255, 255, 255, 0.15);">
-        <!-- Left: Breath Hold (+5% steadier) -->
+        <!-- Left: Breath Hold (Max 3s +5% steadier) -->
         <button id="btn-breath-hold" class="btn-hud-breath" style="min-height: 54px;">
-          🫁 กลั้นหายใจ <small>(+5% นิ่ง)</small>
+          <span id="breath-label-text">🫁 กลั้นหายใจ</span>
+          <small id="breath-timer-sub">(3.0s | +5% นิ่ง)</small>
         </button>
 
         <!-- Middle: Cocking Lever (คันสับไก) -->

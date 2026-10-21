@@ -202,22 +202,117 @@ class SoundFX {
   }
 
   /**
-   * Cadence Pacer Metronome Tick
+   * Loud, punchy, crisp Cadence Metronome Bell / Woodblock Stroke
    */
   playMetronomeTick() {
     this.init();
     if (!this.ctx || this.muted) return;
     const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1050, now);
-    gain.gain.setValueAtTime(0.15, now);
-    gain.gain.exponentialRampToValueAtTime(0.002, now + 0.025);
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.03);
+
+    // High transient snap (crisp stick click)
+    const oscSnap = this.ctx.createOscillator();
+    const gainSnap = this.ctx.createGain();
+    oscSnap.type = 'triangle';
+    oscSnap.frequency.setValueAtTime(3200, now);
+    oscSnap.frequency.exponentialRampToValueAtTime(1600, now + 0.02);
+    gainSnap.gain.setValueAtTime(0.7, now);
+    gainSnap.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+    oscSnap.connect(gainSnap);
+    gainSnap.connect(this.ctx.destination);
+    oscSnap.start(now);
+    oscSnap.stop(now + 0.028);
+
+    // Resonant wooden competition bell body
+    const oscBody = this.ctx.createOscillator();
+    const gainBody = this.ctx.createGain();
+    oscBody.type = 'sine';
+    oscBody.frequency.setValueAtTime(1480, now);
+    oscBody.frequency.exponentialRampToValueAtTime(980, now + 0.12);
+    gainBody.gain.setValueAtTime(0.65, now);
+    gainBody.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+    oscBody.connect(gainBody);
+    gainBody.connect(this.ctx.destination);
+    oscBody.start(now);
+    oscBody.stop(now + 0.14);
+  }
+
+  /**
+   * Short Female Vocal "Ah!" Breath Release on Shot Break
+   * (Synthesizes realistic female vocal formant frequencies: F0 ~280Hz -> 210Hz, F1 ~850Hz, F2 ~1350Hz)
+   */
+  playFemaleVoiceAh() {
+    this.init();
+    if (!this.ctx || this.muted) return;
+    const now = this.ctx.currentTime;
+    const dur = 0.22;
+
+    // 1. Glottal Source (Voice fundamental pitch dropping from 290Hz to 215Hz)
+    const glottal = this.ctx.createOscillator();
+    glottal.type = 'sawtooth';
+    glottal.frequency.setValueAtTime(295, now);
+    glottal.frequency.exponentialRampToValueAtTime(215, now + dur);
+
+    // Vocal tract Formant 1 (~850 Hz - Open vowel 'ah')
+    const f1 = this.ctx.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.frequency.setValueAtTime(850, now);
+    f1.Q.setValueAtTime(4.5, now);
+
+    // Vocal tract Formant 2 (~1350 Hz)
+    const f2 = this.ctx.createBiquadFilter();
+    f2.type = 'bandpass';
+    f2.frequency.setValueAtTime(1350, now);
+    f2.Q.setValueAtTime(5.0, now);
+
+    // Vocal tract Formant 3 (~2800 Hz)
+    const f3 = this.ctx.createBiquadFilter();
+    f3.type = 'bandpass';
+    f3.frequency.setValueAtTime(2800, now);
+    f3.Q.setValueAtTime(3.5, now);
+
+    // Vocal Gain Envelope
+    const vocalGain = this.ctx.createGain();
+    vocalGain.gain.setValueAtTime(0.001, now);
+    vocalGain.gain.linearRampToValueAtTime(0.38, now + 0.035); // Sharp vocal onset
+    vocalGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    // 2. Breath Aspiration Noise (Soft exhale burst)
+    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+    const whiteNoise = this.ctx.createBufferSource();
+    whiteNoise.buffer = noiseBuffer;
+
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(1600, now);
+    noiseFilter.Q.setValueAtTime(1.8, now);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.001, now);
+    noiseGain.gain.linearRampToValueAtTime(0.18, now + 0.04);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    // Routing
+    glottal.connect(f1);
+    glottal.connect(f2);
+    glottal.connect(f3);
+    f1.connect(vocalGain);
+    f2.connect(vocalGain);
+    f3.connect(vocalGain);
+    vocalGain.connect(this.ctx.destination);
+
+    whiteNoise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.ctx.destination);
+
+    glottal.start(now);
+    glottal.stop(now + dur);
+    whiteNoise.start(now);
+    whiteNoise.stop(now + dur);
   }
 }
 

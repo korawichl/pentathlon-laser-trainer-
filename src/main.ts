@@ -10,7 +10,6 @@ import {
 } from './types';
 import { TargetGeometry } from './ballistics/target';
 import { MotionBiomechanics, OneEuroFilter } from './sensors/motion';
-import { HeartRateTelemetry } from './telemetry/heartRate';
 import { PerformanceAnalytics } from './analytics/stats';
 import { SessionStorageExport } from './storage/export';
 import { sfx } from './sound';
@@ -27,7 +26,6 @@ class PentaArenaController {
   // Services
   private targetGeo = new TargetGeometry(10.0, 59.5);
   private biomech = new MotionBiomechanics();
-  private bleHr = new HeartRateTelemetry();
   private yawFilter = new OneEuroFilter(4.5, 0.04, 1.0);
   private pitchFilter = new OneEuroFilter(4.5, 0.04, 1.0);
   private rollFilter = new OneEuroFilter(3.5, 0.03, 1.0);
@@ -35,14 +33,14 @@ class PentaArenaController {
   // Biometrics
   private entryBpm = 174;
   private currentBpm = 174;
-  private hrSource: DataSourceType = 'SIMULATED_MODEL';
   private isHoldingBreath = false;
+  private currentBreathHoldSec = 0; // Strictly max 3.0s per activation
   private lastSystolicPeak = false;
   private currentO2Stress01 = 0;
   private currentDeltoidPct = 0;
 
   // Cocking Lever State (ระบบสับไกปืน)
-  private isPistolCocked = true; // True = in battery ready to fire, False = needs cocking lever cycle
+  private isPistolCocked = true;
 
   // Real-Time Gyroscope & Motion Tracking
   public hasGyro = false;
@@ -76,9 +74,10 @@ class PentaArenaController {
   private liveTraceSpeedMmPerSec = 0;
   private recentAimTrail: { tMs: number; xMm: number; yMm: number }[] = [];
 
-  // Station Lifecycle
+  // Station & Rep Lifecycle
   private isStationActive = false;
   private stationStartPerfMs = 0;
+  private repStartPerfMs = 0; // For Mode 2 strict 2.50s timer per shot
   private lastRaiseFromTableMs = 0;
   private lastShotPerfMs = 0;
   private maxDurationSec = 50.0;
@@ -105,7 +104,7 @@ class PentaArenaController {
     deltoidPct: number;
   } | null = null;
 
-  // Cadence Metronome
+  // Cadence Metronome (Mode 4)
   private cadenceIntervalSec = 2.1;
   private nextMetronomeTickSec = 2.1;
 
@@ -133,6 +132,7 @@ class PentaArenaController {
     this.bindRangeControls();
     this.bindResultControls();
     this.initGyroscope();
+    this.updateSoundButtons();
     this.resizeRangeCanvas();
     window.addEventListener('resize', () => this.resizeRangeCanvas());
   }
@@ -146,7 +146,7 @@ class PentaArenaController {
   }
 
   // ===========================================================================
-  // GYROSCOPE INITIALIZATION & PERMISSION
+  // GYROSCOPE INITIALIZATION & SENSORS
   // ===========================================================================
 
   private initGyroscope() {
@@ -267,15 +267,42 @@ class PentaArenaController {
   }
 
   // ===========================================================================
+  // SOUND CONTROL (Mute / Unmute)
+  // ===========================================================================
+
+  public toggleMute() {
+    sfx.muted = !sfx.muted;
+    this.updateSoundButtons();
+  }
+
+  private updateSoundButtons() {
+    const navSoundBtn = document.getElementById('btn-sound-toggle');
+    const rangeSoundBtn = document.getElementById('btn-range-sound');
+    const text = sfx.muted ? '🔇' : '🔊';
+    if (navSoundBtn) navSoundBtn.textContent = text;
+    if (rangeSoundBtn) rangeSoundBtn.textContent = text;
+  }
+
+  // ===========================================================================
   // COCKING LEVER MECHANISM (สับไกปืน)
   // ===========================================================================
 
   public cockPistol() {
-    if (this.isPistolCocked) return; // already cocked
+    if (this.isPistolCocked) return;
     this.isPistolCocked = true;
     sfx.playCockLever();
     if (navigator.vibrate) navigator.vibrate(15);
     this.updatePistolCockUI();
+
+    // In Mode 2 (First-Shot Drill), cocking resets the 2.50s countdown for the next rep!
+    if (this.drillMode === 'FIRST_SHOT_DRILL') {
+      this.repStartPerfMs = performance.now();
+      const readout = document.getElementById('hud-last-shot-readout');
+      if (readout) {
+        readout.textContent = `REP #${this.currentShots.length + 1}/5 — ลั่นไกใน 2.50s!`;
+        readout.style.color = '#facc15';
+      }
+    }
   }
 
   private updatePistolCockUI() {
@@ -310,6 +337,40 @@ class PentaArenaController {
         fireBtn.textContent = '⚡ สับไกก่อนยิง (COCK)';
       }
     }
+  }
+
+  // ===========================================================================
+  // BREATH HOLD (Strictly 3.0 Seconds Max + 5% Steadier Aim)
+  // ===========================================================================
+
+  public setBreathHold(active: boolean) {
+    if (active) {
+      this.isHoldingBreath = true;
+      this.currentBreathHoldSec = 0;
+      const breathBtn = document.getElementById('btn-breath-hold');
+      const breathStatus = document.getElementById('breath-status-text');
+      breathBtn?.classList.add('active');
+      if (breathStatus) {
+        breathStatus.textContent = 'ON (3.0s)';
+        breathStatus.style.color = '#06b6d4';
+      }
+    } else {
+      this.isHoldingBreath = false;
+      this.currentBreathHoldSec = 0;
+      const breathBtn = document.getElementById('btn-breath-hold');
+      const breathSub = document.getElementById('breath-timer-sub');
+      const breathStatus = document.getElementById('breath-status-text');
+      breathBtn?.classList.remove('active');
+      if (breathSub) breathSub.textContent = '(3.0s | +5% นิ่ง)';
+      if (breathStatus) {
+        breathStatus.textContent = 'OFF (3.0s)';
+        breathStatus.style.color = '#94a3b8';
+      }
+    }
+  }
+
+  public toggleBreathHold() {
+    this.setBreathHold(!this.isHoldingBreath);
   }
 
   // ===========================================================================
@@ -352,10 +413,8 @@ class PentaArenaController {
         hrPills.forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
         const val = parseInt(pill.getAttribute('data-val') || '174', 10);
-        if (this.hrSource !== 'HARDWARE_BLE') {
-          this.entryBpm = val;
-          this.currentBpm = val;
-        }
+        this.entryBpm = val;
+        this.currentBpm = val;
       });
     });
 
@@ -370,31 +429,12 @@ class PentaArenaController {
       });
     });
 
-    // 5. Sound Toggle
-    const soundBtn = document.getElementById('btn-sound-toggle');
-    soundBtn?.addEventListener('click', () => {
-      sfx.muted = !sfx.muted;
-      soundBtn.textContent = sfx.muted ? '🔇' : '🔊';
+    // 5. Sound Toggle (Navbar)
+    document.getElementById('btn-sound-toggle')?.addEventListener('click', () => {
+      this.toggleMute();
     });
 
-    // 6. Connect BLE
-    document.getElementById('btn-connect-ble')?.addEventListener('click', async () => {
-      this.bleHr.subscribe((bpm, source) => {
-        if (source === 'HARDWARE_BLE') {
-          this.currentBpm = bpm;
-          this.entryBpm = bpm;
-          this.hrSource = 'HARDWARE_BLE';
-          const btn = document.getElementById('btn-connect-ble');
-          if (btn) btn.textContent = `💚 BLE: ${bpm} BPM`;
-        }
-      });
-      const ok = await this.bleHr.connectBleSensor();
-      if (!ok) {
-        alert('ไม่พบสายคาดอก Bluetooth Heart Rate — ระบบใช้โมเดลจำลองคลื่นชีพจรตามความเหนื่อยแทน');
-      }
-    });
-
-    // 7. Enter Range Button
+    // 6. Enter Range Button
     document.getElementById('btn-enter-range')?.addEventListener('click', async () => {
       const devOrient = window.DeviceOrientationEvent as unknown as {
         requestPermission?: () => Promise<'granted' | 'denied'>;
@@ -415,47 +455,28 @@ class PentaArenaController {
   }
 
   // ===========================================================================
-  // RANGE CONTROLS & BREATH HOLD (+5% STEADIER AIM)
+  // RANGE HUD CONTROLS
   // ===========================================================================
 
-  private setBreathHold(active: boolean) {
-    this.isHoldingBreath = active;
-    const breathBtn = document.getElementById('btn-breath-hold');
-    const breathText = document.getElementById('breath-status-text');
-
-    if (active) {
-      breathBtn?.classList.add('active');
-      if (breathText) {
-        breathText.textContent = 'ON (+5% นิ่ง)';
-        breathText.style.color = '#06b6d4';
-      }
-    } else {
-      breathBtn?.classList.remove('active');
-      if (breathText) {
-        breathText.textContent = 'OFF';
-        breathText.style.color = '#94a3b8';
-      }
-    }
-  }
-
-  private toggleBreathHold() {
-    this.setBreathHold(!this.isHoldingBreath);
-  }
-
   private bindRangeControls() {
-    // Back to Lobby
+    // Exit Range
     document.getElementById('btn-range-exit')?.addEventListener('click', () => {
       this.isStationActive = false;
       cancelAnimationFrame(this.animFrameId);
       this.switchScreen('view-setup');
     });
 
-    // Recenter Button
+    // Sound Toggle in Range HUD
+    document.getElementById('btn-range-sound')?.addEventListener('click', () => {
+      this.toggleMute();
+    });
+
+    // Recenter
     document.getElementById('btn-recenter-aim')?.addEventListener('click', () => {
       this.recenterAim();
     });
 
-    // Breath Hold Button: supports both Click-to-Toggle and Touch-Hold
+    // Breath Hold (Max 3s)
     const breathBtn = document.getElementById('btn-breath-hold');
     breathBtn?.addEventListener('click', (e) => {
       e.preventDefault();
@@ -471,13 +492,12 @@ class PentaArenaController {
       this.cockPistol();
     });
 
-    // Trigger Button (Fire)
+    // Fire Button
     const fireBtn = document.getElementById('btn-fire');
     fireBtn?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (!this.isPistolCocked) {
-        // If not cocked, tapping fire button immediately cocks the lever for convenience!
         this.cockPistol();
       } else {
         this.onTriggerPressStart();
@@ -492,13 +512,12 @@ class PentaArenaController {
       }
     });
 
-    // Touch Drag & Tap to Shoot on Canvas
+    // Canvas Tap & Drag
     this.rangeCanvas.addEventListener('pointerdown', (e) => {
       this.isDragging = true;
       this.lastDragX = e.clientX;
       this.lastDragY = e.clientY;
 
-      // In Direct mode: tapping screen fires if cocked, or cocks if uncocked!
       if (this.triggerMode === 'DIRECT_COMPETITION' && this.isStationActive && !this.pendingFollowThroughShot) {
         if (!this.isPistolCocked) {
           this.cockPistol();
@@ -532,6 +551,19 @@ class PentaArenaController {
     };
     this.rangeCanvas.addEventListener('pointerup', stopDrag);
     this.rangeCanvas.addEventListener('pointercancel', stopDrag);
+
+    // Fail Modal Buttons (Mode 2)
+    document.getElementById('btn-fail-retry')?.addEventListener('click', () => {
+      const modal = document.getElementById('range-fail-modal');
+      if (modal) modal.style.display = 'none';
+      this.startRangeSession();
+    });
+
+    document.getElementById('btn-fail-lobby')?.addEventListener('click', () => {
+      const modal = document.getElementById('range-fail-modal');
+      if (modal) modal.style.display = 'none';
+      this.switchScreen('view-setup');
+    });
 
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
@@ -595,9 +627,13 @@ class PentaArenaController {
 
   private startRangeSession() {
     this.switchScreen('view-range');
+    const modal = document.getElementById('range-fail-modal');
+    if (modal) modal.style.display = 'none';
+
     this.isStationActive = true;
-    this.isPistolCocked = true; // First shot starts ready
+    this.isPistolCocked = true;
     this.stationStartPerfMs = performance.now();
+    this.repStartPerfMs = this.stationStartPerfMs;
     this.lastRaiseFromTableMs = this.stationStartPerfMs;
     this.currentShots = [];
     this.hitsCount = 0;
@@ -618,11 +654,11 @@ class PentaArenaController {
     } else if (this.drillMode === 'FIRST_SHOT_DRILL') {
       this.requiredHits = 5;
       this.maxShotsInDrill = 5;
-      this.maxDurationSec = 60.0;
+      this.maxDurationSec = 60.0; // Per-shot strict timer is 2.50s
     } else if (this.drillMode === 'SCATT_10SHOT_DIAG') {
       this.requiredHits = 10;
       this.maxShotsInDrill = 10;
-      this.maxDurationSec = 120.0;
+      this.maxDurationSec = 180.0;
     } else if (this.drillMode === 'CADENCE_METRONOME') {
       this.requiredHits = 5;
       this.maxShotsInDrill = 15;
@@ -636,8 +672,13 @@ class PentaArenaController {
 
     const readout = document.getElementById('hud-last-shot-readout');
     if (readout) {
-      readout.textContent = 'READY — ARMED';
-      readout.style.color = '#38bdf8';
+      if (this.drillMode === 'FIRST_SHOT_DRILL') {
+        readout.textContent = 'REP #1/5 — ลั่นไกใน 2.50s!';
+        readout.style.color = '#facc15';
+      } else {
+        readout.textContent = 'READY — ARMED';
+        readout.style.color = '#38bdf8';
+      }
     }
 
     this.lastFrameMs = performance.now();
@@ -645,8 +686,21 @@ class PentaArenaController {
     this.animFrameId = requestAnimationFrame((t) => this.loopRange(t));
   }
 
+  // Strict 2.50s Failure in Mode 2
+  private triggerMode2TimeoutFail() {
+    this.isStationActive = false;
+    cancelAnimationFrame(this.animFrameId);
+    sfx.playJerk();
+    const modal = document.getElementById('range-fail-modal');
+    const desc = document.getElementById('fail-modal-desc');
+    if (desc) {
+      desc.textContent = `ในโหมด First-Shot Speed (นัดที่ ${this.currentShots.length + 1}/5) คุณลั่นไกช้าเกิน 2.50 วินาที ระบบจึงหยุดการฝึกซ้อมทันที`;
+    }
+    if (modal) modal.style.display = 'flex';
+  }
+
   // ===========================================================================
-  // TRIGGER ACTIONS (Direct, 2-Stage)
+  // TRIGGER ACTIONS & SHOT BREAK
   // ===========================================================================
 
   private onTriggerPressStart() {
@@ -690,13 +744,16 @@ class PentaArenaController {
     const nowPerf = performance.now();
     const timeSinceStartSec = (nowPerf - this.stationStartPerfMs) / 1000.0;
     const splitSec =
-      this.currentShots.length === 0
-        ? timeSinceStartSec
-        : (nowPerf - this.lastShotPerfMs) / 1000.0;
+      this.drillMode === 'FIRST_SHOT_DRILL'
+        ? (nowPerf - this.repStartPerfMs) / 1000.0
+        : (this.currentShots.length === 0 ? timeSinceStartSec : (nowPerf - this.lastShotPerfMs) / 1000.0);
     const holdSec = (nowPerf - this.lastRaiseFromTableMs) / 1000.0;
 
     this.lastShotPerfMs = nowPerf;
+
+    // Shot Sound + Short Female Breath Vocal Effect "Ah!"
     sfx.playShot();
+    sfx.playFemaleVoiceAh();
     if (navigator.vibrate) navigator.vibrate(25);
 
     // After firing, pistol is spent and needs cocking lever cycle!
@@ -748,7 +805,7 @@ class PentaArenaController {
       radialErrorMm: p.radialMm,
       isHit: p.isHit,
       currentBpm: p.bpm,
-      bpmSource: this.hrSource,
+      bpmSource: 'SIMULATED_MODEL',
       breathHeldAtShot: p.breathHeld,
       deltoidFatiguePct: p.deltoidPct,
       jerk,
@@ -792,6 +849,20 @@ class PentaArenaController {
       }
     }
 
+    // Check Drill Completion
+    if (this.drillMode === 'FIRST_SHOT_DRILL') {
+      if (this.currentShots.length >= 5) {
+        sfx.playSeriesCleared();
+        this.completeSeries(false);
+      } else {
+        if (readout) {
+          readout.textContent = `นัดที่ #${this.currentShots.length} สำเร็จ (${p.splitSec.toFixed(2)}s) — สับไกปืนเพื่อนัดถัดไป!`;
+          readout.style.color = '#38bdf8';
+        }
+      }
+      return;
+    }
+
     if (
       (this.drillMode === 'UIPM_5HIT_SERIES' && this.hitsCount >= this.requiredHits) ||
       (this.drillMode === 'CADENCE_METRONOME' && this.hitsCount >= this.requiredHits) ||
@@ -812,22 +883,61 @@ class PentaArenaController {
     const dtSec = Math.min(0.1, Math.max(0.001, (nowMs - this.lastFrameMs) / 1000.0));
     this.lastFrameMs = nowMs;
 
-    let elapsedSec = (nowMs - this.stationStartPerfMs) / 1000.0;
-    const remainingSec = Math.max(0, this.maxDurationSec - elapsedSec);
+    // Timer Logic: Mode 2 (Strict 2.50s countdown) vs General Timer
     const timerEl = document.getElementById('range-countdown-val');
-    if (timerEl) {
-      timerEl.innerHTML = `${remainingSec.toFixed(1)}<span>s</span>`;
-      timerEl.style.color = remainingSec <= 10.0 ? '#ef4444' : '#ffffff';
+    if (this.drillMode === 'FIRST_SHOT_DRILL') {
+      if (this.isPistolCocked) {
+        const repElapsedSec = (nowMs - this.repStartPerfMs) / 1000.0;
+        const repRemainingSec = Math.max(0, 2.50 - repElapsedSec);
+        if (timerEl) {
+          timerEl.innerHTML = `${repRemainingSec.toFixed(2)}<span>s</span>`;
+          timerEl.style.color = repRemainingSec <= 0.8 ? '#ef4444' : '#facc15';
+        }
+
+        // If exceeded 2.50s, STOP THE GAME IMMEDIATELY!
+        if (repRemainingSec <= 0 && !this.pendingFollowThroughShot) {
+          this.triggerMode2TimeoutFail();
+          return;
+        }
+      } else {
+        if (timerEl) {
+          timerEl.innerHTML = `2.50<span>s</span>`;
+          timerEl.style.color = '#94a3b8';
+        }
+      }
+    } else {
+      let elapsedSec = (nowMs - this.stationStartPerfMs) / 1000.0;
+      const remainingSec = Math.max(0, this.maxDurationSec - elapsedSec);
+      if (timerEl) {
+        timerEl.innerHTML = `${remainingSec.toFixed(1)}<span>s</span>`;
+        timerEl.style.color = remainingSec <= 10.0 ? '#ef4444' : '#ffffff';
+      }
+
+      if (remainingSec <= 0) {
+        this.completeSeries(true);
+        return;
+      }
     }
 
-    if (remainingSec <= 0) {
-      this.completeSeries(true);
-      return;
-    }
-
-    if (this.drillMode === 'CADENCE_METRONOME' && elapsedSec >= this.nextMetronomeTickSec) {
+    // Mode 4 Cadence Metronome (Loud & Crisp Tick)
+    let elapsedForMetronome = (nowMs - this.stationStartPerfMs) / 1000.0;
+    if (this.drillMode === 'CADENCE_METRONOME' && elapsedForMetronome >= this.nextMetronomeTickSec) {
       sfx.playMetronomeTick();
       this.nextMetronomeTickSec += this.cadenceIntervalSec;
+    }
+
+    // Breath-Hold Max 3.0s Auto-Release
+    if (this.isHoldingBreath) {
+      this.currentBreathHoldSec += dtSec;
+      const remainingHoldSec = Math.max(0, 3.0 - this.currentBreathHoldSec);
+      const breathSub = document.getElementById('breath-timer-sub');
+      const breathStatus = document.getElementById('breath-status-text');
+      if (breathSub) breathSub.textContent = `(${remainingHoldSec.toFixed(1)}s | +5% นิ่ง)`;
+      if (breathStatus) breathStatus.textContent = `ON (${remainingHoldSec.toFixed(1)}s)`;
+
+      if (this.currentBreathHoldSec >= 3.0) {
+        this.setBreathHold(false);
+      }
     }
 
     const phys = this.biomech.stepPhysiology(
@@ -849,7 +959,7 @@ class PentaArenaController {
     }
     this.lastSystolicPeak = phys.isSystolicPeak;
 
-    // FUSE ORIENTATION SENSORS + DRAG + BREATH-HOLD STABILIZATION (+5% STEADIER AIM)
+    // FUSE ORIENTATION SENSORS + DRAG + 5% STEADIER AIM ON BREATH HOLD
     let targetYawDeg = 0;
     let targetPitchDeg = 0;
     let targetRollDeg = 0;
@@ -866,19 +976,17 @@ class PentaArenaController {
     targetYawDeg += this.dragYawDeg;
     targetPitchDeg += this.dragPitchDeg;
 
-    // 🫁 BREATH-HOLD STABILIZATION:
-    // If breath is held, visibly stabilize aim and hand tremor by ~5% (damping factor 0.95)
-    // and reduce physiological sway amplitude by 35%
-    const breathStabilityFactor = this.isHoldingBreath ? 0.95 : 1.0;
+    // Breath Hold: 5% dampening on jitter and aim deviation
+    const breathDamping = this.isHoldingBreath ? 0.95 : 1.0;
     const swayDamping = this.isHoldingBreath ? 0.65 : 1.0;
 
-    targetYawDeg *= breathStabilityFactor;
-    targetPitchDeg *= breathStabilityFactor;
+    targetYawDeg *= breathDamping;
+    targetPitchDeg *= breathDamping;
 
     const totalYaw = this.yawFilter.filter(targetYawDeg + phys.swayYawDeg * swayDamping, dtSec);
     const totalPitch = this.pitchFilter.filter(targetPitchDeg + phys.swayPitchDeg * swayDamping, dtSec);
     this.currentCantDeg = this.rollFilter.filter(targetRollDeg, dtSec);
-    this.currentFrontSightShiftMm = phys.frontSightPulseMm * (this.isHoldingBreath ? 0.8 : 1.0);
+    this.currentFrontSightShiftMm = phys.frontSightPulseMm * (this.isHoldingBreath ? 0.75 : 1.0);
 
     const coords = this.targetGeo.anglesToTargetMm(
       totalYaw,
@@ -886,9 +994,9 @@ class PentaArenaController {
       this.currentCantDeg,
       this.currentFrontSightShiftMm
     );
-    this.currentXMm = coords.xMm * breathStabilityFactor;
-    this.currentYMm = coords.yMm * breathStabilityFactor;
-    this.currentRadialMm = coords.radialErrorMm * breathStabilityFactor;
+    this.currentXMm = coords.xMm * breathDamping;
+    this.currentYMm = coords.yMm * breathDamping;
+    this.currentRadialMm = coords.radialErrorMm * breathDamping;
 
     this.biomech.pushSample({
       timestampMs: nowMs,
@@ -969,25 +1077,21 @@ class PentaArenaController {
     const minDim = Math.min(w, h);
     const pxPerMm = (minDim * 0.72) / 170.0;
 
-    // Background
     ctx.fillStyle = '#090d16';
     ctx.fillRect(0, 0, w, h);
 
-    // Ecoaims Target Paper
     const boxHalfPx = 80.0 * pxPerMm;
     ctx.fillStyle = '#e2dcc8';
     ctx.beginPath();
     ctx.roundRect(cx - boxHalfPx, cy - boxHalfPx, boxHalfPx * 2, boxHalfPx * 2, 10);
     ctx.fill();
 
-    // Black Hit Zone
     const blackRadiusPx = 29.75 * pxPerMm;
     ctx.fillStyle = '#090b10';
     ctx.beginPath();
     ctx.arc(cx, cy, blackRadiusPx, 0, Math.PI * 2);
     ctx.fill();
 
-    // Scoring Rings
     for (let ring = 1; ring <= 11; ring++) {
       const rPx = this.targetGeo.getRingRadiusMm(ring) * pxPerMm;
       ctx.beginPath();
@@ -997,7 +1101,6 @@ class PentaArenaController {
       ctx.stroke();
     }
 
-    // Previous Shots
     for (const s of this.currentShots) {
       const sx = cx + s.offsetMmX * pxPerMm;
       const sy = cy - s.offsetMmY * pxPerMm;
@@ -1010,7 +1113,6 @@ class PentaArenaController {
       ctx.stroke();
     }
 
-    // Live SCATT Trace
     if (this.showLiveTrace && this.recentAimTrail.length > 2) {
       const now = performance.now();
       for (let i = 1; i < this.recentAimTrail.length; i++) {
@@ -1026,7 +1128,6 @@ class PentaArenaController {
       }
     }
 
-    // 3D Match Iron Sights
     const aimPxX = cx + this.currentXMm * pxPerMm;
     const visualOffset = this.sightZeroMode === 'SUB_SIX_HOLD' ? blackRadiusPx : 0;
     const aimPxY = cy - this.currentYMm * pxPerMm + visualOffset;
@@ -1064,7 +1165,7 @@ class PentaArenaController {
   }
 
   // ===========================================================================
-  // SERIES COMPLETION & SCATT REPLAY
+  // RESULTS & DEEP SCATT SHOT-BY-SHOT TELEMETRY
   // ===========================================================================
 
   private completeSeries(isTimedOut: boolean) {
@@ -1087,7 +1188,7 @@ class PentaArenaController {
       this.currentShots,
       this.entryBpm,
       Math.round(this.currentBpm),
-      this.hrSource,
+      'SIMULATED_MODEL',
       this.drillMode
     );
     res.isTimedOut = isTimedOut;
@@ -1102,29 +1203,42 @@ class PentaArenaController {
   private populateResultScreen(series: SeriesResult) {
     const titleEl = document.getElementById('result-status-title');
     if (titleEl) {
-      titleEl.textContent = series.isTimedOut
-        ? `⏱️ หมดเวลา (${series.hitsCleared}/${this.requiredHits} HITS)`
-        : `✅ SERIES COMPLETE — ${series.totalRangeStationDurationSec.toFixed(2)}s`;
+      if (this.drillMode === 'FIRST_SHOT_DRILL') {
+        const avgSplit = (series.shots.reduce((a, b) => a + b.splitFromPrevShotSec, 0) / Math.max(1, series.shots.length)).toFixed(2);
+        titleEl.textContent = `⚡ FIRST-SHOT DRILL COMPLETE — AVG: ${avgSplit}s`;
+      } else {
+        titleEl.textContent = series.isTimedOut
+          ? `⏱️ หมดเวลา (${series.hitsCleared}/${this.requiredHits} HITS)`
+          : `✅ SERIES COMPLETE — ${series.totalRangeStationDurationSec.toFixed(2)}s`;
+      }
     }
 
     const summaryTable = document.getElementById('table-result-metrics');
     if (summaryTable) {
       summaryTable.innerHTML = `
         <tr>
-          <td>เวลาเข้าช่องยิงรวม</td>
-          <td><strong>${series.totalRangeStationDurationSec.toFixed(2)}s</strong> (นัดแรก: <strong>${series.firstShotDurationSec.toFixed(2)}s</strong>)</td>
+          <td>เวลาชุดยิงรวม (Station Time)</td>
+          <td><strong>${series.totalRangeStationDurationSec.toFixed(2)}s</strong> (ยิงนัดแรก: <strong>${series.firstShotDurationSec.toFixed(2)}s</strong>)</td>
         </tr>
         <tr>
-          <td>จำนวนเข้าเป้า</td>
+          <td>จำนวนเข้าเป้า (Hits Cleared)</td>
           <td><strong>${series.hitsCleared} / ${series.totalShotsFired}</strong> (${series.accuracyPct}%)</td>
         </tr>
         <tr>
-          <td>คะแนนทศนิยมเฉลี่ย (ISSF)</td>
+          <td>คะแนนทศนิยมเฉลี่ย (ISSF Decimal Score)</td>
           <td><strong style="color:#2563eb;">${series.avgDecimalScore.toFixed(1)}</strong> / 10.9</td>
         </tr>
         <tr>
-          <td>SCATT Speed (L)</td>
-          <td><strong>${series.avgTraceLengthMmPerSec.toFixed(1)} mm/s</strong></td>
+          <td>ความเร็วปากกระบอก SCATT (Trace Speed L)</td>
+          <td><strong>${series.avgTraceLengthMmPerSec.toFixed(1)} mm/s</strong> (เป้าหมายโปร &lt; 95 mm/s)</td>
+        </tr>
+        <tr>
+          <td>ความนิ่งในวงดำ 59.5mm (Stability 7-Ring)</td>
+          <td><strong>${series.avgStability7RingPct}%</strong></td>
+        </tr>
+        <tr>
+          <td>ระยะกระตุกไกเฉลี่ย (Mean Pull Error)</td>
+          <td><strong>${series.avgPullErrorMm.toFixed(1)} mm</strong></td>
         </tr>
       `;
     }
@@ -1147,7 +1261,7 @@ class PentaArenaController {
       series.shots.forEach((s, idx) => {
         const pill = document.createElement('button');
         pill.className = `shot-pill ${this.selectedReplayShotIdx === idx ? 'active' : ''}`;
-        pill.textContent = `#${s.shotIndex}: ${s.scatt.decimalScore.toFixed(1)}`;
+        pill.textContent = `#${s.shotIndex}: ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)`;
         pill.addEventListener('click', () => {
           this.selectedReplayShotIdx = idx;
           this.refreshReplay(series);
@@ -1155,15 +1269,20 @@ class PentaArenaController {
         pillsRow.appendChild(pill);
 
         const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => {
+          this.selectedReplayShotIdx = idx;
+          this.refreshReplay(series);
+        });
         tr.innerHTML = `
           <td>#${s.shotIndex}</td>
-          <td style="color:${s.isHit ? '#16a34a' : '#dc2626'}; font-weight:700;">
-            ${s.scatt.decimalScore.toFixed(1)}
+          <td style="color:${s.isHit ? '#16a34a' : '#dc2626'}; font-weight:800;">
+            ${s.scatt.decimalScore.toFixed(1)} (${s.scatt.clockDirection}h)
           </td>
           <td>${s.splitFromPrevShotSec.toFixed(2)}s</td>
           <td>${s.scatt.traceLengthMmPerSec}</td>
           <td>${s.scatt.stability7RingPct}%</td>
-          <td>${s.jerk.isJerk ? `⚠️ FLINCH` : 'CLEAN'}</td>
+          <td>${s.jerk.isJerk ? `⚠️ ${s.jerk.flinchDirection}` : 'CLEAN'}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -1177,6 +1296,7 @@ class PentaArenaController {
     this.refreshReplay(series);
   }
 
+  // Deep Shot-by-Shot Telemetry Breakdown
   private refreshReplay(series: SeriesResult) {
     const pills = document.querySelectorAll('#scatt-shot-pills .shot-pill');
     pills.forEach((p, idx) => {
@@ -1187,14 +1307,32 @@ class PentaArenaController {
     if (detailBox) {
       if (this.selectedReplayShotIdx >= 0 && series.shots[this.selectedReplayShotIdx]) {
         const s = series.shots[this.selectedReplayShotIdx];
+        const statusHit = s.isHit ? '🟢 เข้าเป้า (HIT)' : '🔴 หลุดเป้า (MISS)';
         detailBox.innerHTML = `
-          <strong>นัดที่ #${s.shotIndex} (${s.isHit ? 'เข้าเป้า' : 'หลุดเป้า'} ${s.scatt.decimalScore.toFixed(1)} @ ${s.scatt.clockDirection}h):</strong> 
-          ความเร็ว L = <strong>${s.scatt.traceLengthMmPerSec} mm/s</strong> | 
-          ระยะกระตุกไก = <strong>${s.scatt.pullErrorMm}mm</strong> | 
-          เอียง = <strong>${s.scatt.cantAngleAtShotDeg}°</strong>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:6px; margin-bottom:6px;">
+            <div><strong>นัดที่:</strong> #${s.shotIndex} ${statusHit}</div>
+            <div><strong>คะแนนทศนิยม:</strong> ${s.scatt.decimalScore.toFixed(1)} / 10.9</div>
+            <div><strong>ทิศทางหน้าปัด:</strong> ${s.scatt.clockDirection} นาฬิกา</div>
+            <div><strong>ระยะห่างจุดศูนย์กลาง:</strong> ${s.radialErrorMm.toFixed(1)} mm</div>
+            <div><strong>SCATT Trace Speed (L):</strong> ${s.scatt.traceLengthMmPerSec} mm/s</div>
+            <div><strong>ความนิ่งในวงดำ (7-Ring):</strong> ${s.scatt.stability7RingPct}%</div>
+            <div><strong>ความนิ่งในวง 10:</strong> ${s.scatt.stability10RingPct}%</div>
+            <div><strong>ระยะกระตุกไก (Pull Err):</strong> ${s.scatt.pullErrorMm} mm @ ${s.scatt.pullDirectionClock}h</div>
+            <div><strong>องศาเอียงปืน (Cant):</strong> ${s.scatt.cantAngleAtShotDeg}°</div>
+            <div><strong>เวลาลั่นไก (Split):</strong> ${s.splitFromPrevShotSec.toFixed(2)}s</div>
+          </div>
+          <div style="font-size:11px; color:#475569; border-top:1px dashed #cbd5e1; padding-top:4px;">
+            💡 <strong>การวินิจฉัยชีวกลศาสตร์:</strong> ${
+              s.jerk.isJerk
+                ? `ตรวจพบการสะบัดข้อมือ/กระตุกไก (${s.jerk.flinchDirection}) ระยะคลาดเคลื่อน ${s.scatt.pullErrorMm}mm แนะนำบีบไกนุ่มนวลและไม่กระตุกปลายนิ้วชี้`
+                : s.scatt.traceLengthMmPerSec <= 95
+                ? 'ความนิ่งของข้อมือและหัวไหล่ยอดเยี่ยมระดับนักกีฬาทีมชาติ ศูนย์เล็งนิ่งสนิท'
+                : 'ศูนย์เล็งยังแกว่งตัวค่อนข้างเร็วขณะลั่นไก แนะนำใช้ปุ่มกลั้นหายใจเพื่อลดแรงกระเพื่อมอก'
+            }
+          </div>
         `;
       } else {
-        detailBox.innerHTML = `ภาพรวมทั้งชุด (${series.totalShotsFired} นัด) — แตะหมายเลขด้านบนเพื่อดูวิถี SCATT`;
+        detailBox.innerHTML = `ภาพรวมทั้งชุด (${series.totalShotsFired} นัด) — แตะหมายเลขด้านบน (#1, #2, ...) เพื่อวิเคราะห์เจาะลึกวิถีศูนย์เล็งและชีวกลศาสตร์ทีละนัด`;
       }
     }
 
